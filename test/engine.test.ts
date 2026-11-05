@@ -276,6 +276,7 @@ bgcolor(bar_index > 6 ? color.new(color.red, 80) : na)`,
     expect(result.drawings.labels).toHaveLength(1);
     expect(result.drawings.labels[0]).toMatchObject({ text: 'HH', yloc: 'abovebar' });
     expect(result.drawings.backgrounds.length).toBeGreaterThan(0);
+    expect(result.drawings.backgrounds.every((background) => background.color.length > 0)).toBe(true);
   });
 
   it('resamples same-symbol request.security sources on a higher timeframe', () => {

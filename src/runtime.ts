@@ -279,6 +279,7 @@ function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDraw
   for (const entry of result.bgcolors ?? []) {
     const index = entry.barIndex;
     if (index === undefined) continue;
+    if (typeof entry.color !== 'string' || entry.color.length === 0) continue;
     const from = bars[index]?.time;
     if (from === undefined) continue;
     const to = bars[index + 1]?.time ?? from + 1;
