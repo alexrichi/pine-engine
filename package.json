@@ -1,7 +1,7 @@
 {
   "name": "@screener/pine-engine",
   "version": "0.1.0",
-  "description": "Pine Script v6 execution engine: MIT transpiler plus an OakScriptJS standard library.",
+  "description": "Pine Script v6 execution engine: MIT compiler and bar-by-bar runtime.",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -14,11 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@opus-aether-ai/pine-transpiler": "^0.4.11",
-    "oakscriptjs": "^0.15.1"
-  },
   "devDependencies": {
+    "oakscriptjs": "^0.15.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12"
   }

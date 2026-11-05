@@ -13,7 +13,7 @@ export type PineLineStyle = 'solid' | 'dashed' | 'dotted';
 export interface PinePlotMeta {
   id: string;
   title: string;
-  /** PineJS plot type: `line`, `histogram`, `circles`, `area`, `stepline`, `cross`. */
+  /** Pine plot style: `line`, `histogram`, `circles`, `area`, `stepline`, `cross`, `columns`. */
   type: string;
   /** Hex color from the plot declaration, including the engine default. */
   color?: string;
@@ -28,12 +28,66 @@ export interface PinePlot extends PinePlotMeta {
   values: number[];
 }
 
-/** A drawing call emitted by `line.new`, `label.new`, `box.new`, `plotshape`, and friends. */
-export interface PineVisualEvent {
-  call: string;
-  args: unknown[];
-  barIndex: number;
-  pineHandleId?: number;
+export interface PineLine {
+  id: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  xloc: 'bar_index' | 'bar_time';
+  extend: 'none' | 'left' | 'right' | 'both';
+  color: string;
+  style: PineLineStyle;
+  width: number;
+  arrowLeft?: boolean;
+  arrowRight?: boolean;
+}
+
+export interface PineBox {
+  id: number;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  xloc: 'bar_index' | 'bar_time';
+  extend: 'none' | 'left' | 'right' | 'both';
+  backgroundColor: string;
+  borderColor: string;
+  borderWidth: number;
+  borderStyle: PineLineStyle;
+  text: string;
+  textColor: string;
+  textSize: string;
+  hAlign: 'left' | 'center' | 'right';
+  vAlign: 'top' | 'center' | 'bottom';
+}
+
+export interface PineLabel {
+  id: number;
+  x: number;
+  y: number;
+  xloc: 'bar_index' | 'bar_time';
+  yloc: 'price' | 'abovebar' | 'belowbar' | 'top' | 'bottom';
+  text: string;
+  tooltip: string;
+  color: string;
+  textColor: string;
+  style: string;
+  size: string;
+  textAlign: 'left' | 'center' | 'right';
+}
+
+export interface PineBackground {
+  from: number;
+  to: number;
+  color: string;
+}
+
+export interface PineDrawings {
+  lines: PineLine[];
+  boxes: PineBox[];
+  labels: PineLabel[];
+  backgrounds: PineBackground[];
 }
 
 export interface PineInput {
@@ -56,7 +110,7 @@ export interface PineScriptMeta {
 
 export interface PineCompileOptions {
   source: string;
-  /** Stable id for the transpiled indicator; used in its metainfo. */
+  /** Stable id for the compiled indicator; used in its metadata. */
   id?: string;
   name?: string;
   /** Input overrides keyed by the input id from the script metadata. */
@@ -78,13 +132,13 @@ export interface PineRunResult {
   name: string;
   overlay: boolean;
   plots: PinePlot[];
-  visuals: PineVisualEvent[];
+  drawings: PineDrawings;
   inputs: PineInput[];
-  /** Source-level limitations found at compile time. */
+  /** Source-level limitations found at compile time plus runtime warnings. */
   warnings: string[];
   /**
-   * Standard-library names the shim had to stub because OakScriptJS has no
-   * matching function. An empty list means the script ran with full coverage.
+   * Builtin names the runtime had to stub because they are not implemented.
+   * An empty list means the script ran with full coverage.
    */
   missingStd: string[];
 }

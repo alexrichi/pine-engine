@@ -1,0 +1,8 @@
+Portions of this package are derived from pinescript-js-compiler.
+
+pinescript-js-compiler
+Copyright (c) 2026 alex
+MIT License
+
+The derived code lives in src/compiler and src/runtime. The full MIT text is in
+LICENSE.
