@@ -116,6 +116,22 @@ plot(vals.get(0), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
   });
 
+  it('lets a parameter shadow a var declared in another function', () => {
+    const result = run(`//@version=6
+indicator("shadow")
+leg(int size) =>
+    var leg = 0
+    leg := size > 2 ? 1 : 0
+    leg
+isBull(int leg) => leg == 1
+plot(isBull(0) ? 1 : 0, "zero")
+plot(isBull(leg(5)) ? 1 : 0, "one")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(0);
+    expect(result.plots[1]!.values.at(-1)).toBe(1);
+  });
+
   it('treats a UDT method call on na as na', () => {
     const result = run(`//@version=6
 indicator("na method")

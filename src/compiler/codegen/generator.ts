@@ -200,6 +200,8 @@ private thisAlias: string | null = null;
 private fnSiteParam: string | null = null;
 /** `var` names declared inside the function currently being generated. */
 private fnLocalVars = new Set<string>();
+/** Parameter names of the function currently being generated. */
+private fnParams = new Set<string>();
 
   // Metadata extracted from indicator()/strategy() calls
   private metadata: ScriptMetadata = {
@@ -571,6 +573,12 @@ private fnLocalVars = new Set<string>();
     }
   }
 
+  /** State key for a TA/function call site; inside a function it includes the caller. */
+  private callSiteId(): string {
+    const base = `"__cs${this.callSiteIndex++}"`;
+    return this.fnSiteParam ? `${base} + ":" + ${this.fnSiteParam}` : base;
+  }
+
   /** State slot for a `var` name; function-local vars are keyed by call site. */
   private stateRef(name: string): string {
     if (this.fnSiteParam && this.fnLocalVars.has(name)) {
@@ -672,8 +680,11 @@ private fnLocalVars = new Set<string>();
     const savedTypes = this.pushParamTypes(decl.params);
     const savedSite = this.fnSiteParam;
     const savedLocals = this.fnLocalVars;
+    const savedParams = this.fnParams;
     this.fnSiteParam = '__site';
     this.fnLocalVars = new Set(savedLocals);
+    this.fnParams = new Set(savedParams);
+    for (const param of decl.params) this.fnParams.add(param.name);
     if (Array.isArray(decl.body)) {
       // A block-bodied Pine function returns the value of its last statement,
       // including the last expression inside an if/else branch.
@@ -684,6 +695,7 @@ private fnLocalVars = new Set<string>();
     }
     this.fnSiteParam = savedSite;
     this.fnLocalVars = savedLocals;
+    this.fnParams = savedParams;
     this.restoreParamTypes(savedTypes);
     this.indentLevel--;
     out.push(this.indent() + '}');
@@ -846,8 +858,12 @@ private fnLocalVars = new Set<string>();
       this.thisAlias = selfName;
       const savedSite = this.fnSiteParam;
       const savedLocals = this.fnLocalVars;
+      const savedParams = this.fnParams;
       this.fnSiteParam = '__site';
       this.fnLocalVars = new Set(savedLocals);
+      this.fnParams = new Set(savedParams);
+      this.fnParams.add(selfName);
+      for (const param of decl.params) this.fnParams.add(param.name);
       out.push(this.indent() + `var self = ${selfName};`);
       if (Array.isArray(decl.body)) {
         this.genTailBlock(decl.body, out);
@@ -856,6 +872,7 @@ private fnLocalVars = new Set<string>();
       }
       this.fnSiteParam = savedSite;
       this.fnLocalVars = savedLocals;
+      this.fnParams = savedParams;
       this.thisAlias = null;
       this.indentLevel--;
       out.push(this.indent() + '}');
@@ -912,7 +929,7 @@ private fnLocalVars = new Set<string>();
     // Determine if target is a var/varip
     const targetName = this.getIdentName(target);
 
-    if (targetName && this.varDecls.has(targetName)) {
+    if (targetName && this.varDecls.has(targetName) && !this.fnParams.has(targetName)) {
       const storeType = this.varDecls.get(targetName);
       const store = storeType === 'varip' ? this.persistentRef(targetName) : this.stateRef(targetName);
       if (op === ':=' || op === '=') {
@@ -1139,6 +1156,7 @@ private fnLocalVars = new Set<string>();
 
     // var/varip references
     if (this.varDecls.has(name)) {
+      if (this.fnParams.has(name)) return safeIdent(name);
       const storeType = this.varDecls.get(name);
       return storeType === 'varip' ? this.persistentRef(name) : this.stateRef(name);
     }
@@ -1371,7 +1389,7 @@ private fnLocalVars = new Set<string>();
       const isTa = mapped.startsWith('__rt.ta.');
       const withId = (value: string): string => {
         if (!isTa) return value;
-        const id = `"__cs${this.callSiteIndex++}"`;
+        const id = this.callSiteId();
         return value ? `${id}, ${value}` : id;
       };
 
@@ -1406,7 +1424,7 @@ private fnLocalVars = new Set<string>();
       }
       if (calleeName === 'ta.pivothigh' || calleeName === 'ta.pivotlow') {
         // Pine allows ta.pivothigh(left, right) over the chart's highs/lows.
-        const id = `"__cs${this.callSiteIndex++}"`;
+        const id = this.callSiteId();
         if (call.args.length >= 3) return `${mapped}(${id}, ${args})`;
         const source = calleeName === 'ta.pivothigh' ? '__rt.high' : '__rt.low';
         return `${mapped}(${id}, ${source}, ${args})`;
@@ -1446,7 +1464,7 @@ private fnLocalVars = new Set<string>();
           if (this.builtinMethods.has(method)) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-            const site = JSON.stringify(`__cs${this.callSiteIndex++}`);
+            const site = this.callSiteId();
             return `${fnName(method)}(${site}, ${objExpr}${argsStr})`;
           }
           if (objVarType && this.udtTypes.has(objVarType)) {
@@ -1535,7 +1553,7 @@ private fnLocalVars = new Set<string>();
           return `__rt.map.${method}(${objExpr}${argsStr})`;
         }
         if (this.builtinMethods.has(method)) {
-          const site = JSON.stringify(`__cs${this.callSiteIndex++}`);
+          const site = this.callSiteId();
           return `${fnName(method)}(${site}, ${objExpr}${argsStr})`;
         }
         if (this.udtMethods.has(method)) {
@@ -1562,7 +1580,7 @@ private fnLocalVars = new Set<string>();
       const name = (call.callee as IdentifierExpression).name;
       const args = this.genArgs(call.args);
       if (this.userFunctions.has(name)) {
-        const site = JSON.stringify(`__cs${this.callSiteIndex++}`);
+        const site = this.callSiteId();
         return `${fnName(name)}(${site}${args ? ', ' + args : ''})`;
       }
       return `__rt.missing(${JSON.stringify(name)})(${args})`;
