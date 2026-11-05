@@ -331,6 +331,7 @@ export class CodeGenerator {
         const full = `${namespace}.${member.property}`;
         const colorHex = COLOR_CONSTANTS[full];
         if (colorHex) return colorHex;
+        if (namespace === 'hline') return member.property.replace(/^style_/, '');
         if (namespace === 'plot' || namespace === 'hline' || namespace === 'line' ||
             namespace === 'label' || namespace === 'box' || namespace === 'xloc' ||
             namespace === 'yloc' || namespace === 'extend' || namespace === 'shape' ||
@@ -708,7 +709,16 @@ export class CodeGenerator {
       }
     } else {
       const lhsStr = this.genExpr(target);
-      if (op === ':=') {
+      // `=` is a Pine declaration, not a reassignment (`:=`). Declaring with
+      // `var` keeps user names out of the global object: `top`, `length` and
+      // similar names are read-only window properties, so a bare assignment
+      // silently leaves the global value in place in the browser. `var` also
+      // merges with a generated function of the same name (Pine scripts
+      // sometimes shadow a function with a variable).
+      const declares = op === '=' && (target.kind === 'IdentifierExpression' || target.kind === 'TupleExpression');
+      if (declares) {
+        out.push(this.indent() + `var ${lhsStr} = ${rhs};`);
+      } else if (op === ':=') {
         out.push(this.indent() + `${lhsStr} = ${rhs};`);
       } else {
         out.push(this.indent() + `${lhsStr} ${op} ${rhs};`);
@@ -1469,41 +1479,62 @@ export class CodeGenerator {
     let linewidth = 1;
     let linestyle = 'solid';
 
-    if (args[0]) price = this.genExpr(args[0].value);
+    const priceArg = args.find((arg) => arg.name === 'price') ?? args.find((arg) => arg.name === null);
+    if (priceArg) price = this.genExpr(priceArg.value);
 
+    // Pine's positional order is price, title, color, linestyle, linewidth.
+    let positionalIndex = -1;
     for (const arg of args) {
-      if (arg.name === 'title') {
+      if (arg.name === null) positionalIndex += 1;
+      const field = arg.name
+        ?? (positionalIndex === 1
+          ? 'title'
+          : positionalIndex === 2
+            ? 'color'
+            : positionalIndex === 3
+              ? 'linestyle'
+              : positionalIndex === 4
+                ? 'linewidth'
+                : null);
+      if (field === 'title') {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'string') title = v;
-      } else if (arg.name === 'color') {
+      } else if (field === 'color') {
         colorStr = this.resolveColor(arg.value) ?? colorStr;
-      } else if (arg.name === 'linewidth') {
+      } else if (field === 'linewidth') {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'number') linewidth = v;
-      } else if (arg.name === 'linestyle') {
+      } else if (field === 'linestyle') {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'string') linestyle = v;
       }
     }
 
-    const opts = `{title:${JSON.stringify(title)},color:${JSON.stringify(colorStr)},linewidth:${linewidth}}`;
+    const opts = `{title:${JSON.stringify(title)},color:${JSON.stringify(colorStr)},linewidth:${linewidth},linestyle:${JSON.stringify(linestyle)}}`;
     return `__rt.hline(${idx}, ${price}, ${opts})`;
   }
 
   private genFillCall(call: CallExpression): string {
     const args = call.args;
-    const p1 = args[0] ? this.genExpr(args[0].value) : '0';
-    const p2 = args[1] ? this.genExpr(args[1].value) : '1';
-    let colorStr: string | undefined;
+    const positional = args.filter((arg) => arg.name === null);
+    const first = args.find((arg) => arg.name === 'plot1' || arg.name === 'hline1') ?? positional[0];
+    const second = args.find((arg) => arg.name === 'plot2' || arg.name === 'hline2') ?? positional[1];
+    const p1 = first ? this.genExpr(first.value) : 'null';
+    const p2 = second ? this.genExpr(second.value) : 'null';
+    let colorArg: CallArgument | undefined;
 
+    let positionalIndex = -1;
     for (const arg of args) {
-      if (arg.name === 'color' || (arg.name === null && args.indexOf(arg) === 2)) {
-        colorStr = this.resolveColor(arg.value);
+      if (arg.name === null) positionalIndex += 1;
+      if (arg.name === 'color' || (arg.name === null && positionalIndex === 2)) {
+        colorArg = arg;
       }
     }
 
-    if (colorStr !== undefined) {
-      return `__rt.fill(${p1}, ${p2}, {color:${JSON.stringify(colorStr)}})`;
+    if (colorArg) {
+      const resolved = this.resolveColor(colorArg.value);
+      const colorExpr = resolved !== undefined ? JSON.stringify(resolved) : this.genExpr(colorArg.value);
+      return `__rt.fill(${p1}, ${p2}, {color:${colorExpr}})`;
     }
     return `__rt.fill(${p1}, ${p2})`;
   }

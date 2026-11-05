@@ -798,4 +798,134 @@ plotbar(open, high, low, close, "Bar", color=color.green)`,
     expect(result.candles[1]).toMatchObject({ title: 'Bar', kind: 'bar', color: '#4CAF50' });
     expect(result.candles[0]!.bars).toHaveLength(10);
   });
+
+  it('returns price lines and fills with plot and hline anchors', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Levels", overlay=false)
+upper = hline(70, "Upper", color=color.red, linewidth=2, linestyle=hline.style_dashed)
+lower = hline(30, "Lower", color=color.green, linestyle=hline.style_dotted)
+mid = plot(50, "Mid", color=color.gray)
+value = plot(close, "Close", color=color.blue)
+fill(value, mid, color=color.new(color.blue, 80))
+fill(hline1=upper, hline2=lower, color=color.new(color.orange, 90))
+plot(close, "close")`,
+      bars: bars(6),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.priceLines).toHaveLength(2);
+    expect(result.priceLines[0]).toMatchObject({
+      id: 0,
+      price: 70,
+      title: 'Upper',
+      width: 2,
+      style: 'dashed',
+    });
+    expect(result.priceLines[1]).toMatchObject({ id: 1, price: 30, style: 'dotted' });
+
+    expect(result.fills).toHaveLength(2);
+    const plotFill = result.fills.find((fill) => fill.from.kind === 'plot')!;
+    expect(plotFill.from).toEqual({ kind: 'plot', index: 1 });
+    expect(plotFill.to).toEqual({ kind: 'plot', index: 0 });
+    expect(plotFill.color).toBe('#2962FF33');
+
+    const hlineFill = result.fills.find((fill) => fill.from.kind === 'hline')!;
+    expect(hlineFill.from).toEqual({ kind: 'hline', index: 0, price: 70 });
+    expect(hlineFill.to).toEqual({ kind: 'hline', index: 1, price: 30 });
+    expect(hlineFill.color).toMatch(/^#FF9800/);
+  });
+
+  it('keeps conditional fill colors per bar', () => {
+    const testBars: PineBar[] = [
+      { time: 1_000, open: 100, high: 102, low: 99, close: 101, volume: 1 },
+      { time: 2_000, open: 102, high: 103, low: 100, close: 101, volume: 1 },
+      { time: 3_000, open: 100, high: 102, low: 99, close: 101, volume: 1 },
+      { time: 4_000, open: 102, high: 103, low: 100, close: 101, volume: 1 },
+    ];
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Bands", overlay=false)
+highPlot = plot(high, "High")
+lowPlot = plot(low, "Low")
+fill(highPlot, lowPlot, color = close > open ? color.green : na)
+plot(close)`,
+      bars: testBars,
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.fills).toHaveLength(1);
+    const fill = result.fills[0]!;
+    expect(fill.color).toBeUndefined();
+    expect(fill.colors).toEqual(['#4CAF50', null, '#4CAF50', null]);
+  });
+
+  it('dedupes price lines and bar colors per bar', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Colors")
+upper = hline(70, "Upper")
+barcolor(close > open ? color.green : color.red)
+barcolor(bar_index % 2 == 0 ? color.blue : na)
+plot(close)`,
+      bars: bars(6),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.priceLines).toHaveLength(1);
+    expect(result.barColors).toHaveLength(3);
+    expect(result.barColors.every((entry) => entry.color === '#2962FF')).toBe(true);
+  });
+
+  it('keeps user variable names out of the global object', () => {
+    Object.defineProperty(globalThis, 'top', {
+      value: 'host',
+      writable: false,
+      configurable: true,
+    });
+    try {
+      const result = runPineScript({
+        source: `//@version=6
+indicator("Globals", overlay=true)
+top = hline(80000, "Top", color=color.red)
+bottom = hline(76000, "Bottom", color=color.green)
+fill(top, bottom, color=color.purple)
+plot(close, "close")`,
+        bars: bars(6),
+        timeframe: '60',
+      });
+      expect(result.ok).toBe(true);
+      expect(result.fills).toHaveLength(1);
+      expect(result.fills[0]!.from).toEqual({ kind: 'hline', index: 0, price: 80000 });
+    } finally {
+      delete (globalThis as { top?: unknown }).top;
+    }
+  });
+
+  it('returns per-bar plotcandle colors', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Two tone")
+plotcandle(open, high, low, close, "Candle", color = bar_index % 2 == 0 ? color.green : color.red, wickcolor = color.blue)
+plotbar(open, high, low, close, "Bar", color = bar_index % 2 == 0 ? color.blue : color.orange)`,
+      bars: bars(4),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    const candle = result.candles.find((series) => series.kind === 'candle')!;
+    expect(candle.barColors?.map((color) => color?.color)).toEqual([
+      '#4CAF50',
+      '#FF5252',
+      '#4CAF50',
+      '#FF5252',
+    ]);
+    expect(candle.barColors?.every((color) => color?.wickColor === '#2962FF')).toBe(true);
+    const barPlot = result.candles.find((series) => series.kind === 'bar')!;
+    expect(barPlot.barColors?.map((color) => color?.color)).toEqual([
+      '#2962FF',
+      '#FF9800',
+      '#2962FF',
+      '#FF9800',
+    ]);
+  });
 });

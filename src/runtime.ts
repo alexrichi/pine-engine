@@ -7,18 +7,24 @@
 } from './compiler/index';
 import { buildRunner, executeRunner, type Runner } from './runtime/engine';
 import type { Bar } from './data/types';
-import type { ExecutionResult } from './runtime/index';
+import type { ExecutionResult, FillRef } from './runtime/index';
 import { canonicalTimeframe } from './timeframe';
 import type {
   PineBar,
+  PineBarColor,
   PineBox,
+  PineCandleBarColor,
+  PineCandleSeries,
   PineCompileOptions,
   PineDrawings,
+  PineFill,
+  PineFillAnchor,
   PineInput,
   PineLabel,
   PineLine,
   PinePlot,
   PinePlotMeta,
+  PinePriceLine,
   PineProgram,
   PineRunBars,
   PineRunResult,
@@ -27,7 +33,6 @@ import type {
   PineTableCell,
   PineTableMerge,
   PineShapePoint,
-  PineCandleSeries,
   PineLinefill,
   PinePolyline,
   PinePolylinePoint,
@@ -148,6 +153,9 @@ function emptyRun(
     tables: [],
     shapes: [],
     candles: [],
+    priceLines: [],
+    fills: [],
+    barColors: [],
     inputs,
     warnings,
     missingStd: [],
@@ -456,6 +464,97 @@ function shapesOf(result: ExecutionResult): PineShapePoint[] {
   return points;
 }
 
+function priceLinesOf(result: ExecutionResult): PinePriceLine[] {
+  const byIndex = new Map<number, PinePriceLine>();
+  for (const line of result.hlines ?? []) {
+    const index = Number(line.index);
+    const price = Number(line.price);
+    if (!Number.isFinite(index) || !Number.isFinite(price)) continue;
+    byIndex.set(index, {
+      id: index,
+      price,
+      title: String(line.title || `hline_${index}`),
+      color: String(line.color || '#787B86'),
+      width: Number.isFinite(Number(line.linewidth)) ? Number(line.linewidth) : 1,
+      style: lineStyleOf(line.linestyle),
+    });
+  }
+  return [...byIndex.values()].sort((a, b) => a.id - b.id);
+}
+
+function anchorOf(ref: FillRef, hlines: Map<number, number>): PineFillAnchor | null {
+  if (ref.kind === 'hline') {
+    const price = hlines.get(ref.index);
+    return price === undefined ? null : { kind: 'hline', index: ref.index, price };
+  }
+  return { kind: 'plot', index: ref.index };
+}
+
+function fillsOf(result: ExecutionResult, bars: readonly PineBar[]): PineFill[] {
+  const hlines = new Map<number, number>();
+  for (const line of result.hlines ?? []) {
+    const price = Number(line.price);
+    if (Number.isFinite(price)) hlines.set(Number(line.index), price);
+  }
+
+  interface Bucket {
+    from: FillRef;
+    to: FillRef;
+    colors: (string | null)[];
+  }
+  const groups = new Map<string, Bucket>();
+
+  for (const fill of result.fills ?? []) {
+    const index = fill.barIndex;
+    if (index === undefined || index < 0 || index >= bars.length) continue;
+    const key = `${fill.from.kind}:${fill.from.index}>${fill.to.kind}:${fill.to.index}`;
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = { from: fill.from, to: fill.to, colors: new Array<string | null>(bars.length).fill(null) };
+      groups.set(key, bucket);
+    }
+    bucket.colors[index] = typeof fill.color === 'string' && fill.color.length > 0 ? fill.color : null;
+  }
+
+  const fills: PineFill[] = [];
+  for (const [id, bucket] of groups) {
+    const present = bucket.colors.filter((color): color is string => color !== null);
+    if (present.length === 0) continue;
+    const from = anchorOf(bucket.from, hlines);
+    const to = anchorOf(bucket.to, hlines);
+    if (!from || !to) continue;
+    // A flat color only when every bar carries the same color; any `na` gap or a
+    // second color keeps the per-bar array so conditional fills stay conditional.
+    const flat = bucket.colors.every((color) => color === present[0]) ? present[0] : undefined;
+    fills.push(flat ? { id, from, to, color: flat } : { id, from, to, colors: bucket.colors });
+  }
+  return fills;
+}
+
+function barColorsOf(result: ExecutionResult): PineBarColor[] {
+  const byTime = new Map<number, string>();
+  for (const entry of result.barcolors ?? []) {
+    const time = Number(entry.time);
+    if (!Number.isFinite(time)) continue;
+    byTime.set(time, typeof entry.color === 'string' ? entry.color : '');
+  }
+  return [...byTime.entries()]
+    .filter(([, color]) => color.length > 0)
+    .map(([time, color]) => ({ time, color }))
+    .sort((a, b) => a.time - b.time);
+}
+
+type CandleValue = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  color?: string;
+  wickcolor?: string;
+  bordercolor?: string;
+};
+
 function candlesOf(result: ExecutionResult, bars: readonly PineBar[]): PineCandleSeries[] {
   const byTime = new Map<number, number>();
   bars.forEach((bar, index) => {
@@ -464,7 +563,7 @@ function candlesOf(result: ExecutionResult, bars: readonly PineBar[]): PineCandl
   const series: PineCandleSeries[] = [];
 
   for (const candle of result.plotcandles ?? []) {
-    const values = bars.map((bar) => ({
+    const values: CandleValue[] = bars.map((bar) => ({
       time: bar.time,
       open: Number.NaN,
       high: Number.NaN,
@@ -476,6 +575,10 @@ function candlesOf(result: ExecutionResult, bars: readonly PineBar[]): PineCandl
       if (index === undefined) continue;
       values[index] = value;
     }
+    const barColors = values.map((value): PineCandleBarColor | null => {
+      if (!value.color && !value.wickcolor && !value.bordercolor) return null;
+      return { color: value.color, wickColor: value.wickcolor, borderColor: value.bordercolor };
+    });
     series.push({
       id: candle.index,
       title: candle.title,
@@ -483,12 +586,13 @@ function candlesOf(result: ExecutionResult, bars: readonly PineBar[]): PineCandl
       color: candle.color,
       wickColor: candle.wickcolor,
       borderColor: candle.bordercolor,
-      bars: values,
+      bars: values.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })),
+      barColors: barColors.some((color) => color !== null) ? barColors : undefined,
     });
   }
 
   for (const barPlot of result.plotbars ?? []) {
-    const values = bars.map((bar) => ({
+    const values: CandleValue[] = bars.map((bar) => ({
       time: bar.time,
       open: Number.NaN,
       high: Number.NaN,
@@ -500,12 +604,16 @@ function candlesOf(result: ExecutionResult, bars: readonly PineBar[]): PineCandl
       if (index === undefined) continue;
       values[index] = value;
     }
+    const barColors = values.map((value): PineCandleBarColor | null =>
+      value.color ? { color: value.color } : null,
+    );
     series.push({
       id: barPlot.index,
       title: barPlot.title,
       kind: 'bar',
       color: barPlot.color,
-      bars: values,
+      bars: values.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })),
+      barColors: barColors.some((color) => color !== null) ? barColors : undefined,
     });
   }
 
@@ -577,6 +685,9 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           tables: tablesOf(result),
           shapes: shapesOf(result),
           candles: candlesOf(result, bars),
+          priceLines: priceLinesOf(result),
+          fills: fillsOf(result, bars),
+          barColors: barColorsOf(result),
           inputs: meta.inputs,
           warnings: [...meta.warnings, ...runtimeWarnings],
           missingStd: result.missing ?? [],

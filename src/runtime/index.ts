@@ -17,12 +17,27 @@ export interface HlineData {
   price: number;
   title: string;
   color: string;
+  linewidth: number;
+  linestyle: string;
 }
 
+/** A handle returned by `plot()` or `hline()`, consumed by `fill()`. */
+export interface PlotHandle {
+  readonly __pinePlot: number;
+}
+
+export interface HlineHandle {
+  readonly __pineHline: number;
+}
+
+export type FillRef = { kind: 'plot'; index: number } | { kind: 'hline'; index: number };
+
 export interface FillData {
-  plot1: number;
-  plot2: number;
+  from: FillRef;
+  to: FillRef;
+  /** Empty string means the script passed `na` for this bar. */
   color: string;
+  barIndex?: number;
 }
 
 export interface BgColorData {
@@ -34,6 +49,7 @@ export interface BgColorData {
 export interface BarColorData {
   time: number;
   color: string;
+  barIndex?: number;
 }
 
 export interface PlotShapeData {
@@ -70,14 +86,30 @@ export interface PlotCandleData {
   color: string;
   wickcolor: string;
   bordercolor: string;
-  values: { time: number; open: number; high: number; low: number; close: number }[];
+  values: {
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    color?: string;
+    wickcolor?: string;
+    bordercolor?: string;
+  }[];
 }
 
 export interface PlotBarData {
   index: number;
   title: string;
   color: string;
-  values: { time: number; open: number; high: number; low: number; close: number }[];
+  values: {
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    color?: string;
+  }[];
 }
 
 export interface ExecutionResult {

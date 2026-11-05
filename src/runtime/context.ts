@@ -22,6 +22,9 @@ import {
   PlotData,
   HlineData,
   FillData,
+  FillRef,
+  PlotHandle,
+  HlineHandle,
   BgColorData,
   BarColorData,
   PlotShapeData,
@@ -130,9 +133,9 @@ export interface RuntimeContext {
   persistentState: Record<string, unknown>;
 
   // Output recording
-  plot(index: number, value: number | null, opts?: Partial<PlotData>): void;
-  hline(index: number, price: number, opts?: Partial<HlineData>): void;
-  fill(p1: number, p2: number, opts?: { color?: string }): void;
+  plot(index: number, value: number | null, opts?: Partial<PlotData>): PlotHandle;
+  hline(index: number, price: number, opts?: Partial<HlineData>): HlineHandle;
+  fill(p1: unknown, p2: unknown, opts?: { color?: string }): void;
   bgcolor(clr: string): void;
   barcolor(clr: string): void;
   plotshape(index: number, series: unknown, opts?: Record<string, unknown>): void;
@@ -267,6 +270,21 @@ function stripTickerModifier(symbol: string): string {
 
 function withTickerModifier(symbol: string, modifier: string): string {
   return `${stripTickerModifier(symbol)};${modifier}`;
+}
+
+function fillRef(value: unknown): FillRef | null {
+  if (value !== null && typeof value === 'object') {
+    const plot = (value as Partial<PlotHandle>).__pinePlot;
+    if (typeof plot === 'number' && Number.isFinite(plot)) return { kind: 'plot', index: plot };
+    const hline = (value as Partial<HlineHandle>).__pineHline;
+    if (typeof hline === 'number' && Number.isFinite(hline)) return { kind: 'hline', index: hline };
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return { kind: 'plot', index: value };
+  return null;
+}
+
+function colorString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 export function createContext(
@@ -469,7 +487,7 @@ export function createContext(
     state,
     persistentState,
 
-    plot(index: number, value: number | null, opts?: Partial<PlotData>): void {
+    plot(index: number, value: number | null, opts?: Partial<PlotData>): PlotHandle {
       let plotData = plots.get(index);
       if (!plotData) {
         plotData = {
@@ -491,19 +509,31 @@ export function createContext(
         value: isNa(numValue) ? null : numValue as number,
         barIndex: currentBarIndex,
       });
+      return { __pinePlot: index };
     },
 
-    hline(index: number, price: number, opts?: Partial<HlineData>): void {
+    hline(index: number, price: number, opts?: Partial<HlineData>): HlineHandle {
       hlines.push({
         index,
         price,
         title: opts?.title ?? `hline_${index}`,
-        color: opts?.color ?? '#787B86',
+        color: colorString(opts?.color) ?? '#787B86',
+        linewidth: Number.isFinite(opts?.linewidth) ? opts!.linewidth! : 1,
+        linestyle: colorString(opts?.linestyle) ?? 'solid',
       });
+      return { __pineHline: index };
     },
 
-    fill(p1: number, p2: number, opts?: { color?: string }): void {
-      fills.push({ plot1: p1, plot2: p2, color: opts?.color ?? 'rgba(0,0,0,0.1)' });
+    fill(p1: unknown, p2: unknown, opts?: { color?: string }): void {
+      const from = fillRef(p1);
+      const to = fillRef(p2);
+      if (!from || !to) return;
+      fills.push({
+        from,
+        to,
+        color: opts === undefined ? 'rgba(0,0,0,0.1)' : colorString(opts.color) ?? '',
+        barIndex: currentBarIndex,
+      });
     },
 
     bgcolor(clr: string): void {
@@ -511,7 +541,12 @@ export function createContext(
     },
 
     barcolor(clr: string): void {
-      barcolors.push({ time: builtins.time.get(0), color: clr });
+      // Keep the last call per bar, including `na`, so a later clear wins.
+      barcolors.push({
+        time: builtins.time.get(0),
+        color: colorString(clr) ?? '',
+        barIndex: currentBarIndex,
+      });
     },
 
     plotshape(index: number, series: unknown, opts?: Record<string, unknown>): void {
@@ -589,9 +624,9 @@ export function createContext(
         data = {
           index,
           title: (opts?.title as string) ?? `plotcandle_${index}`,
-          color: (opts?.color as string) ?? '#2962FF',
-          wickcolor: (opts?.wickcolor as string) ?? '#737375',
-          bordercolor: (opts?.bordercolor as string) ?? '#2962FF',
+          color: colorString(opts?.color) ?? '#2962FF',
+          wickcolor: colorString(opts?.wickcolor) ?? '#737375',
+          bordercolor: colorString(opts?.bordercolor) ?? '#2962FF',
           values: [],
         };
         plotcandles.set(index, data);
@@ -603,6 +638,9 @@ export function createContext(
         high: Number(coerce(high)),
         low: Number(coerce(low)),
         close: Number(coerce(close)),
+        color: colorString(coerce(opts?.color)),
+        wickcolor: colorString(coerce(opts?.wickcolor)),
+        bordercolor: colorString(coerce(opts?.bordercolor)),
       });
     },
 
@@ -612,7 +650,7 @@ export function createContext(
         data = {
           index,
           title: (opts?.title as string) ?? `plotbar_${index}`,
-          color: (opts?.color as string) ?? '#2962FF',
+          color: colorString(opts?.color) ?? '#2962FF',
           values: [],
         };
         plotbars.set(index, data);
@@ -624,6 +662,7 @@ export function createContext(
         high: Number(coerce(high)),
         low: Number(coerce(low)),
         close: Number(coerce(close)),
+        color: colorString(coerce(opts?.color)),
       });
     },
 

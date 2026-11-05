@@ -135,6 +135,47 @@ export interface PineShapePoint {
   size: string;
 }
 
+/** A horizontal price line (Pine `hline()`). */
+export interface PinePriceLine {
+  /** Declaration index; repeated calls over bars collapse to one line. */
+  id: number;
+  price: number;
+  title: string;
+  color: string;
+  width: number;
+  style: PineLineStyle;
+}
+
+/** One side of a `fill()` band: a plot declaration or an hline level. */
+export interface PineFillAnchor {
+  kind: 'plot' | 'hline';
+  index: number;
+  /** Set for hline anchors. */
+  price?: number;
+}
+
+/** A band between two plots or hlines (Pine `fill()`). */
+export interface PineFill {
+  id: string;
+  from: PineFillAnchor;
+  to: PineFillAnchor;
+  /** Flat band color when every bar has the same color. */
+  color?: string;
+  /** Per-bar colors aligned to the input bars; `null` marks an `na` gap. */
+  colors?: (string | null)[];
+}
+
+export interface PineBarColor {
+  time: number;
+  color: string;
+}
+
+export interface PineCandleBarColor {
+  color?: string;
+  wickColor?: string;
+  borderColor?: string;
+}
+
 /** A `plotcandle`/`plotbar` series. */
 export interface PineCandleSeries {
   id: number;
@@ -150,6 +191,8 @@ export interface PineCandleSeries {
     low: number;
     close: number;
   }[];
+  /** Per-bar plotcandle/plotbar colors, aligned to `bars`. */
+  barColors?: (PineCandleBarColor | null)[];
 }
 
 export interface PineDrawings {
@@ -233,6 +276,9 @@ export interface PineRunResult {
   tables: PineTable[];
   shapes: PineShapePoint[];
   candles: PineCandleSeries[];
+  priceLines: PinePriceLine[];
+  fills: PineFill[];
+  barColors: PineBarColor[];
   inputs: PineInput[];
   /** Source-level limitations found at compile time plus runtime warnings. */
   warnings: string[];
