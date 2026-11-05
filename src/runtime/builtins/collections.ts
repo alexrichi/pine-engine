@@ -3,31 +3,31 @@
 export const arrayModule = {
   /** Create a new float (number) array. */
   newFloat(size?: number, val?: number): number[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? 0);
   },
 
   /** Create a new int (number) array. */
   newInt(size?: number, val?: number): number[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? 0);
   },
 
   /** Create a new boolean array. */
   newBool(size?: number, val?: boolean): boolean[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? false);
   },
 
   /** Create a new string array. */
   newString(size?: number, val?: string): string[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? '');
   },
 
   /** Generic new array. */
   new(size?: number, val?: any): any[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? null);
   },
 
@@ -234,37 +234,37 @@ export const arrayModule = {
 
   /** Create a new line array. */
   newLine(size?: number, val?: any): any[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? null);
   },
 
   /** Create a new linefill array. */
   newLinefill(size?: number, val?: any): any[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? null);
   },
 
   /** Create a new label array. */
   newLabel(size?: number, val?: any): any[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? null);
   },
 
   /** Create a new box array. */
   newBox(size?: number, val?: any): any[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? null);
   },
 
   /** Create a new table array. */
   newTable(size?: number, val?: any): any[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? null);
   },
 
   /** Create a new color array. */
   newColor(size?: number, val?: any): any[] {
-    if (size === undefined || size <= 0) return [];
+    if (size === undefined || !Number.isFinite(size) || size <= 0) return [];
     return new Array(size).fill(val ?? null);
   },
 

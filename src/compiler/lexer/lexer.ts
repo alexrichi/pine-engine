@@ -119,9 +119,11 @@ export class Lexer {
       const last = this.tokens[this.tokens.length - 1];
       const leading = this.peekNonSpace();
       const leadingOperator = leading !== '' && '+-*/%?:<>=&|'.includes(leading);
+      const leadingWord = this.peekLeadingWordOperator();
       const continued =
         this.depth > 0 ||
         leadingOperator ||
+        leadingWord ||
         (!!last &&
           last.type !== TokenType.NEWLINE &&
           last.type !== TokenType.INDENT &&
@@ -525,6 +527,16 @@ export class Lexer {
     }
     const ch = this.source[index];
     return ch === undefined || ch === '\n' || ch === '\r' ? '' : ch;
+  }
+
+  /** A continuation line may start with a word operator (`and`, `or`, `not`). */
+  private peekLeadingWordOperator(): boolean {
+    let index = this.pos;
+    while (index < this.source.length && (this.source[index] === ' ' || this.source[index] === '\t')) {
+      index++;
+    }
+    const rest = this.source.slice(index, index + 5);
+    return /^(and|or|not)\b/.test(rest);
   }
 
   /** Tokens after which a newline is suppressed (implicit line continuation). */

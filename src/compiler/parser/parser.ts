@@ -1007,6 +1007,7 @@ export class Parser {
       type === TokenType.SIMPLE ||
       type === TokenType.CONST ||
       type === TokenType.COMMA ||
+      type === TokenType.DOT ||
       type === TokenType.LBRACKET ||
       type === TokenType.RBRACKET ||
       type === TokenType.LT ||

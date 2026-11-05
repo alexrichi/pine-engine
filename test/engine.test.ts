@@ -958,6 +958,29 @@ plot(ta.tsi(close, 3, 10), "TSI")`,
     expect(tsi.values.filter((value) => Number.isFinite(value)).every((value) => value >= -100 && value <= 100)).toBe(true);
   });
 
+  it('continues expressions across lines and accepts dotted generic types', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Continuation")
+a = 1
+b = a +
+    2
+c = a
+    and b > 0
+    ? 1 : 0
+points = array.new<chart.point>()
+points.push(chart.point.from_index(0, close))
+colors = array.new_color(na)
+array.push(colors, color.red)
+plot(b + c + array.size(colors))`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    expect(result.plots[0]!.values.some((value) => Number.isFinite(value))).toBe(true);
+  });
+
   it('returns per-bar plotcandle colors', () => {
     const result = runPineScript({
       source: `//@version=6
