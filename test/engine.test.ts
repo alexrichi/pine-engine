@@ -1026,6 +1026,44 @@ plot(confirmedOpen, "Confirmed open")`,
     expect(confirmedOpen.values[0]).toBe(113);
   });
 
+  it('evaluates ta.atr inside a lower-timeframe security tuple', () => {
+    const chartBars: PineBar[] = Array.from({ length: 4 }, (_, index) => ({
+      time: index * 15 * 60_000,
+      open: 100 + index,
+      high: 110 + index,
+      low: 90 + index,
+      close: 100 + index,
+      volume: 10,
+    }));
+    const lowerBars: PineBar[] = Array.from({ length: 60 }, (_, index) => ({
+      time: index * 60_000,
+      open: 100 + index,
+      high: 101 + index,
+      low: 99 + index,
+      close: 100 + index,
+      volume: 1,
+    }));
+    const result = runPineScript({
+      source: `//@version=6
+indicator("ATR intrabar")
+[times, atrs] = request.security_lower_tf(syminfo.tickerid, "1", [time, ta.atr(3)])
+[confirmedAtr] = request.security(syminfo.tickerid, "1", [ta.atr(3)[1]], lookahead = barmerge.lookahead_on)
+plot(array.size(times), "Count")
+plot(array.get(atrs, 1), "Intrabar ATR")
+plot(confirmedAtr, "Confirmed ATR")`,
+      bars: chartBars,
+      lowerBars: { 'BINANCE:BTCUSDT.P@1': lowerBars },
+      timeframe: '15',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+    const atr = result.plots.find((plot) => plot.title === 'Intrabar ATR')!;
+    expect(atr.values[0]).toBeGreaterThan(0);
+    const confirmed = result.plots.find((plot) => plot.title === 'Confirmed ATR')!;
+    expect(confirmed.values[0]).toBeGreaterThan(0);
+  });
+
   it('returns per-bar plotcandle colors', () => {
     const result = runPineScript({
       source: `//@version=6

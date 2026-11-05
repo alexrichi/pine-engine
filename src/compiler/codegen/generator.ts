@@ -1154,10 +1154,10 @@ export class CodeGenerator {
         const timeframe = this.securityExprArg(call, 'timeframe', 1);
         const gaps = this.securityExprArg(call, 'gaps', 3);
         const lookahead = this.securityExprArg(call, 'lookahead', 4);
-        const value = specs.tuple ? specs.items : specs.items[0];
+        const value = this.securitySpecsSource(specs);
         const ignoreSymbol = this.securityOption(call, 'ignore_invalid_symbol');
         const ignoreTimeframe = this.securityOption(call, 'ignore_invalid_timeframe');
-        return `__rt.request.securitySource(${symbol}, ${timeframe}, ${JSON.stringify(value)}, ${gaps}, ${lookahead}, ${ignoreSymbol}, ${ignoreTimeframe})`;
+        return `__rt.request.securitySource(${symbol}, ${timeframe}, ${value}, ${gaps}, ${lookahead}, ${ignoreSymbol}, ${ignoreTimeframe})`;
       }
     }
     if (calleeName === 'request.security_lower_tf') {
@@ -1167,7 +1167,7 @@ export class CodeGenerator {
         const timeframe = this.securityExprArg(call, 'timeframe', 1);
         const ignoreSymbol = this.securityOption(call, 'ignore_invalid_symbol');
         const ignoreTimeframe = this.securityOption(call, 'ignore_invalid_timeframe');
-        return `__rt.request.securityLowerSource(${symbol}, ${timeframe}, ${JSON.stringify(specs.items)}, ${ignoreSymbol}, ${ignoreTimeframe})`;
+        return `__rt.request.securityLowerSource(${symbol}, ${timeframe}, ${this.securitySpecsSource(specs, true)}, ${ignoreSymbol}, ${ignoreTimeframe})`;
       }
     }
 
@@ -1354,26 +1354,37 @@ export class CodeGenerator {
   }
 
   private securitySpecs(expr: Expression | undefined): {
-    items: ({ name: string; offset?: number } | null)[];
+    items: ({ kind: 'source'; name: string; offset?: number } | { kind: 'ta'; fn: string; args: string[]; offset?: number } | null)[];
     tuple: boolean;
   } | null {
     if (!expr) return null;
-    const specOf = (element: Expression): { name: string; offset?: number } | null => {
-      if (element.kind === 'IdentifierExpression') {
-        const name = (element as IdentifierExpression).name;
-        return SECURITY_SOURCES.has(name) ? { name } : null;
+    const specOf = (element: Expression): ({ kind: 'source'; name: string; offset?: number } | { kind: 'ta'; fn: string; args: string[]; offset?: number } | null) => {
+      let offset: number | undefined;
+      let node = element;
+      if (node.kind === 'IndexExpression') {
+        const index = node as IndexExpression;
+        const value = index.index.kind === 'LiteralExpression' ? (index.index as LiteralExpression).value : null;
+        if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+          offset = value;
+          node = index.object;
+        } else {
+          return null;
+        }
       }
-      if (element.kind === 'IndexExpression') {
-        const index = element as IndexExpression;
-        if (index.object.kind !== 'IdentifierExpression') return null;
-        const name = (index.object as IdentifierExpression).name;
-        if (!SECURITY_SOURCES.has(name)) return null;
-        const offset = index.index.kind === 'LiteralExpression'
-          ? (index.index as LiteralExpression).value
-          : null;
-        return typeof offset === 'number' && Number.isInteger(offset) && offset >= 0
-          ? { name, offset }
-          : null;
+      if (node.kind === 'IdentifierExpression') {
+        const name = (node as IdentifierExpression).name;
+        return SECURITY_SOURCES.has(name) ? { kind: 'source', name, offset } : null;
+      }
+      if (node.kind === 'CallExpression') {
+        const call = node as CallExpression;
+        if (call.callee.kind !== 'MemberExpression') return null;
+        const member = call.callee as MemberExpression;
+        if (member.object.kind !== 'IdentifierExpression') return null;
+        if ((member.object as IdentifierExpression).name !== 'ta') return null;
+        if (member.property !== 'atr') return null;
+        const length = call.args[0]?.value;
+        if (!length) return null;
+        return { kind: 'ta', fn: 'atr', args: [this.genExpr(length)], offset };
       }
       return null;
     };
@@ -1384,6 +1395,22 @@ export class CodeGenerator {
     }
     const single = specOf(expr);
     return single ? { items: [single], tuple: false } : null;
+  }
+
+  private securitySpecsSource(
+    specs: { items: ({ kind: 'source'; name: string; offset?: number } | { kind: 'ta'; fn: string; args: string[]; offset?: number } | null)[]; tuple: boolean },
+    forceArray = false,
+  ): string {
+    const one = (spec: (typeof specs.items)[number]): string => {
+      if (!spec) return 'null';
+      if (spec.kind === 'ta') {
+        return `{kind:"ta",fn:${JSON.stringify(spec.fn)},args:[${spec.args.join(',')}]${spec.offset ? `,offset:${spec.offset}` : ''}}`;
+      }
+      return JSON.stringify(spec.offset ? { name: spec.name, offset: spec.offset } : { name: spec.name });
+    };
+    return specs.tuple || forceArray
+      ? `[${specs.items.map(one).join(',')}]`
+      : one(specs.items[0]!);
   }
 
   private securityOption(call: CallExpression, name: string): string {

@@ -24,9 +24,12 @@ export interface RequestModule {
   seed(seed: number, ...args: any[]): any;
 }
 
-/** One builtin source requested through `request.security`, with an optional `[n]` offset. */
+/** One source requested through `request.security`: a builtin or a small TA call. */
 export interface SecuritySource {
-  name: string;
+  kind?: 'source' | 'ta';
+  name?: string;
+  fn?: string;
+  args?: number[];
   offset?: number;
 }
 
@@ -146,6 +149,7 @@ export function createRequestModule(
 ): RequestModule {
   const warned = new Set<string>();
   const bucketCache = new Map<string, { buckets: Bucket[]; lookup: Int32Array }>();
+  const atrCache = new Map<string, number[]>();
 
   interface LowerSlice {
     series: readonly Bar[];
@@ -202,6 +206,48 @@ export function createRequestModule(
     if (name === 'hlc3') return (bar.high + bar.low + bar.close) / 3;
     if (name === 'ohlc4') return (bar.open + bar.high + bar.low + bar.close) / 4;
     return (bar as unknown as Record<string, number>)[name] ?? NA;
+  }
+
+  /** Wilder ATR over a bar series, matching the chart engine's `ta.atr`. */
+  function atrValues(length: number, series: readonly Bar[], key: string): number[] {
+    const cacheKey = `${key}:${length}`;
+    const cached = atrCache.get(cacheKey);
+    if (cached) return cached;
+    const out = new Array<number>(series.length).fill(NA);
+    if (!Number.isFinite(length) || length <= 0) {
+      atrCache.set(cacheKey, out);
+      return out;
+    }
+    let previous = Number.NaN;
+    for (let index = 0; index < series.length; index++) {
+      const bar = series[index]!;
+      const priorClose = index > 0 ? series[index - 1]!.close : Number.NaN;
+      const tr = Number.isFinite(priorClose)
+        ? Math.max(
+            bar.high - bar.low,
+            Math.abs(bar.high - priorClose),
+            Math.abs(bar.low - priorClose),
+          )
+        : bar.high - bar.low;
+      previous = Number.isFinite(previous) ? (previous * (length - 1) + tr) / length : tr;
+      out[index] = previous;
+    }
+    atrCache.set(cacheKey, out);
+    return out;
+  }
+
+  function specValue(
+    spec: SecuritySource,
+    bar: Bar,
+    index: number,
+    series: readonly Bar[],
+    key: string,
+  ): number {
+    if (spec.kind === 'ta') {
+      if (spec.fn !== 'atr' || !spec.args?.length) return NA;
+      return atrValues(spec.args[0]!, series, key)[index] ?? NA;
+    }
+    return sourceValue(bar, index, spec.name ?? '');
   }
 
   function warn(symbol: string, timeframe: string, lower = false, ignore = false): void {
@@ -279,10 +325,10 @@ export function createRequestModule(
     if (gapsOn && lookup.buckets[bucketIndex]!.start !== currentIndex) return specs.map(() => NA);
     const lookaheadOn = lookahead === 'barmerge.lookahead_on' || lookahead === 'lookahead_on';
     return specs.map((spec) => {
-      if (!spec) return NA;
+      if (!spec || spec.kind === 'ta') return NA;
       const target = (lookaheadOn ? bucketIndex : bucketIndex - 1) - (spec.offset ?? 0);
       if (target < 0) return NA;
-      return bucketSource(lookup.buckets[target]!, target, spec.name);
+      return bucketSource(lookup.buckets[target]!, target, spec.name ?? '');
     });
   }
 
@@ -320,7 +366,7 @@ export function createRequestModule(
           if (!spec) return NA;
           const index = currentIndex - (spec.offset ?? 0);
           const target = bars[index];
-          return target ? sourceValue(target, index, spec.name) : NA;
+          return target ? specValue(spec, target, index, bars, 'chart') : NA;
         });
         return tuple ? values : values[0];
       }
@@ -338,7 +384,7 @@ export function createRequestModule(
           const base = lookaheadOn ? slice.end - 1 : slice.end - 2;
           const index = base - (spec.offset ?? 0);
           if (index < slice.start || index >= slice.end) return NA;
-          return sourceValue(slice.series[index]!, index, spec.name);
+          return specValue(spec, slice.series[index]!, index, slice.series, `${requested}:${String(symbol)}`);
         });
         return tuple ? values : values[0];
       }
@@ -353,6 +399,7 @@ export function createRequestModule(
         cached = buildBuckets(bars, requested);
         bucketCache.set(requested, cached);
       }
+      if (specs.some((spec) => spec?.kind === 'ta')) unsupportedSources(String(symbol ?? ''), requested);
       const values = toUpperValues(specs, cached, currentIndex, gaps, lookahead);
       return tuple ? values : values[0];
     },
@@ -377,7 +424,7 @@ export function createRequestModule(
       if (requested === currentTf) {
         const bar = bars[currentIndex];
         return bar
-          ? sources.map((spec) => (spec ? [sourceValue(bar, currentIndex, spec.name)] : [NA]))
+          ? sources.map((spec) => (spec ? [specValue(spec, bar, currentIndex, bars, 'chart')] : [NA]))
           : empty();
       }
       if (!(requestedSeconds > 0 && requestedSeconds < currentSeconds)) {
@@ -394,7 +441,7 @@ export function createRequestModule(
         if (!spec) return new Array<number>(slice.end - slice.start).fill(NA);
         const values: number[] = [];
         for (let index = slice.start; index < slice.end; index++) {
-          values.push(sourceValue(slice.series[index]!, index, spec.name));
+          values.push(specValue(spec, slice.series[index]!, index, slice.series, `${requested}:${String(symbol)}`));
         }
         return values;
       });
