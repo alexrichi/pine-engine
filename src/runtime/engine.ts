@@ -66,6 +66,8 @@ export function executeRunner(
     () => options.timeframe ?? '',
     () => options.symbol ?? '',
     (message) => internals.warnings.push(message),
+    options.lowerBars,
+    options.onLowerTimeframe,
   );
 
   resetNaState();

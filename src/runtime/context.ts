@@ -217,6 +217,9 @@ export interface ContextOptions {
   inputs?: Record<string, unknown>;
   symbol?: string;
   timeframe?: string;
+  /** Lower-timeframe bars keyed `<symbol>@<canonical timeframe>`. */
+  lowerBars?: Record<string, readonly import('../data/types').Bar[]>;
+  onLowerTimeframe?: (symbol: string, timeframe: string) => void;
 }
 
 /**

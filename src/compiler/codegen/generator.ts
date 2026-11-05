@@ -1148,14 +1148,26 @@ export class CodeGenerator {
     // Higher-timeframe builtin sources can be resampled from the chart bars.
     // Arbitrary expressions still return na with a warning.
     if (calleeName === 'request.security') {
-      const sources = this.securitySources(call.args[2]?.value);
-      if (sources) {
-        const symbol = call.args[0] ? this.genExpr(call.args[0].value) : 'undefined';
-        const timeframe = call.args[1] ? this.genExpr(call.args[1].value) : 'undefined';
-        const gaps = call.args[3] ? this.genExpr(call.args[3].value) : 'undefined';
-        const lookahead = call.args[4] ? this.genExpr(call.args[4].value) : 'undefined';
-        const value = sources.length === 1 ? sources[0] : sources;
-        return `__rt.request.securitySource(${symbol}, ${timeframe}, ${JSON.stringify(value)}, ${gaps}, ${lookahead})`;
+      const specs = this.securitySpecs(this.securityArg(call, 'expression', 2)?.value);
+      if (specs) {
+        const symbol = this.securityExprArg(call, 'symbol', 0);
+        const timeframe = this.securityExprArg(call, 'timeframe', 1);
+        const gaps = this.securityExprArg(call, 'gaps', 3);
+        const lookahead = this.securityExprArg(call, 'lookahead', 4);
+        const value = specs.tuple ? specs.items : specs.items[0];
+        const ignoreSymbol = this.securityOption(call, 'ignore_invalid_symbol');
+        const ignoreTimeframe = this.securityOption(call, 'ignore_invalid_timeframe');
+        return `__rt.request.securitySource(${symbol}, ${timeframe}, ${JSON.stringify(value)}, ${gaps}, ${lookahead}, ${ignoreSymbol}, ${ignoreTimeframe})`;
+      }
+    }
+    if (calleeName === 'request.security_lower_tf') {
+      const specs = this.securitySpecs(this.securityArg(call, 'expression', 2)?.value);
+      if (specs) {
+        const symbol = this.securityExprArg(call, 'symbol', 0);
+        const timeframe = this.securityExprArg(call, 'timeframe', 1);
+        const ignoreSymbol = this.securityOption(call, 'ignore_invalid_symbol');
+        const ignoreTimeframe = this.securityOption(call, 'ignore_invalid_timeframe');
+        return `__rt.request.securityLowerSource(${symbol}, ${timeframe}, ${JSON.stringify(specs.items)}, ${ignoreSymbol}, ${ignoreTimeframe})`;
       }
     }
 
@@ -1341,23 +1353,53 @@ export class CodeGenerator {
     return `${calleeStr}(${args})`;
   }
 
-  private securitySources(expr: Expression | undefined): string[] | null {
+  private securitySpecs(expr: Expression | undefined): {
+    items: ({ name: string; offset?: number } | null)[];
+    tuple: boolean;
+  } | null {
     if (!expr) return null;
-    if (expr.kind === 'IdentifierExpression') {
-      const name = (expr as IdentifierExpression).name;
-      return SECURITY_SOURCES.has(name) ? [name] : null;
-    }
-    if (expr.kind === 'ArrayLiteralExpression') {
-      const names: string[] = [];
-      for (const element of (expr as ArrayLiteralExpression).elements) {
-        if (element.kind !== 'IdentifierExpression') return null;
+    const specOf = (element: Expression): { name: string; offset?: number } | null => {
+      if (element.kind === 'IdentifierExpression') {
         const name = (element as IdentifierExpression).name;
-        if (!SECURITY_SOURCES.has(name)) return null;
-        names.push(name);
+        return SECURITY_SOURCES.has(name) ? { name } : null;
       }
-      return names.length > 0 ? names : null;
+      if (element.kind === 'IndexExpression') {
+        const index = element as IndexExpression;
+        if (index.object.kind !== 'IdentifierExpression') return null;
+        const name = (index.object as IdentifierExpression).name;
+        if (!SECURITY_SOURCES.has(name)) return null;
+        const offset = index.index.kind === 'LiteralExpression'
+          ? (index.index as LiteralExpression).value
+          : null;
+        return typeof offset === 'number' && Number.isInteger(offset) && offset >= 0
+          ? { name, offset }
+          : null;
+      }
+      return null;
+    };
+
+    if (expr.kind === 'ArrayLiteralExpression') {
+      const items = (expr as ArrayLiteralExpression).elements.map(specOf);
+      return items.some((item) => item !== null) ? { items, tuple: true } : null;
     }
-    return null;
+    const single = specOf(expr);
+    return single ? { items: [single], tuple: false } : null;
+  }
+
+  private securityOption(call: CallExpression, name: string): string {
+    const arg = call.args.find((candidate) => candidate.name === name);
+    return arg ? this.genExpr(arg.value) : 'false';
+  }
+
+  private securityArg(call: CallExpression, name: string, position: number): CallArgument | undefined {
+    const named = call.args.find((candidate) => candidate.name === name);
+    if (named) return named;
+    return call.args.filter((candidate) => candidate.name === null)[position];
+  }
+
+  private securityExprArg(call: CallExpression, name: string, position: number): string {
+    const arg = this.securityArg(call, name, position);
+    return arg ? this.genExpr(arg.value) : 'undefined';
   }
 
   private genTableCall(call: CallExpression, kind: 'new' | 'cell'): string {

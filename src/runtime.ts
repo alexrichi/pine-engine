@@ -667,13 +667,19 @@ export function compilePine(options: PineCompileOptions): PineProgram {
   return {
     ok: true,
     meta,
-    run({ bars, timeframe, symbol, inputs }: PineRunBars): PineRunResult {
+    run({ bars, timeframe, symbol, inputs, lowerBars, onLowerTimeframe }: PineRunBars): PineRunResult {
       const values: Record<string, unknown> = { ...compileInputs, ...(inputs ?? {}) };
       try {
         const result = executeRunner(runner, bars.map(barOf), {
           inputs: values,
           symbol,
           timeframe: canonicalTimeframe(timeframe ?? ''),
+          lowerBars: lowerBars
+            ? Object.fromEntries(
+                Object.entries(lowerBars).map(([key, series]) => [key, series.map(barOf)]),
+              )
+            : undefined,
+          onLowerTimeframe,
         });
         const runtimeWarnings = result.warnings ?? [];
         return {

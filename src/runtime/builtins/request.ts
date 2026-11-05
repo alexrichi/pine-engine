@@ -1,26 +1,33 @@
 // Pine Script v6 request.security() runtime module.
 //
-// The engine only has the chart's own bars. A higher timeframe or a foreign
-// symbol would need another data feed, so those calls return `na` and report a
-// warning instead of silently returning the chart's values. Same-symbol,
-// same-timeframe calls keep working and return the expression unchanged.
+// The engine only has the chart's own bars plus optional lower-timeframe bars
+// supplied by the host. Higher timeframes are resampled from the chart; lower
+// timeframes use the supplied intrabar series. Anything else returns `na` with
+// a warning instead of silently returning the chart's values.
 
 import { Series } from '../types/series';
 import { NA } from '../types/na';
 import type { Bar } from '../../data/types';
 
 export interface RequestModule {
-  security(symbol: string | any, timeframe: string, expression: any, gaps?: string, lookahead?: string): any;
-  securitySource(symbol: string | any, timeframe: string, sources: string | string[], gaps?: string, lookahead?: string): any;
-  security_lower_tf(symbol: string | any, timeframe: string, expression: any): any;
+  security(symbol: string | any, timeframe: string, expression: any, gaps?: string, lookahead?: string, ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
+  securitySource(symbol: string | any, timeframe: string, sources: SecuritySource | SecuritySource[] | (SecuritySource | null)[] | string | string[], gaps?: string, lookahead?: string, ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
+  securityLowerSource(symbol: string | any, timeframe: string, sources: (SecuritySource | null)[], ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
+  security_lower_tf(symbol: string | any, timeframe: string, expression: any, ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
   currency_rate(from: string, to: string): number;
   financial(symbol: string, financialId: string, period?: string, gaps?: string): any;
   economic(countryCode: string, field: string, time?: number): any;
   dividends(symbol: string, dividendType: string, gaps?: string): any;
-  earnings(symbol: string, earningsType: string, gaps?: string): any;
-  splits(symbol: string, splitType: string, gaps?: string): any;
+  earnings(symbol: string, earningsType: string): any;
+  splits(symbol: string, splitType: string): any;
   quandl(code: string, gaps?: string): any;
   seed(seed: number, ...args: any[]): any;
+}
+
+/** One builtin source requested through `request.security`, with an optional `[n]` offset. */
+export interface SecuritySource {
+  name: string;
+  offset?: number;
 }
 
 const ALIASES: Record<string, string> = {
@@ -53,8 +60,6 @@ interface Bucket {
   close: number;
   volume: number;
 }
-
-const SOURCE_NAMES = new Set(['open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4', 'time', 'bar_index']);
 
 function timeframeSeconds(tf: string): number {
   if (tf === 'D') return 86_400;
@@ -136,16 +141,89 @@ export function createRequestModule(
   getCurrentTimeframe: () => string,
   getCurrentSymbol: () => string = () => '',
   onWarning: (message: string) => void = () => {},
+  lowerBars: Record<string, readonly Bar[]> = {},
+  onLowerTimeframe: (symbol: string, timeframe: string) => void = () => {},
 ): RequestModule {
   const warned = new Set<string>();
   const bucketCache = new Map<string, { buckets: Bucket[]; lookup: Int32Array }>();
 
-  function warn(symbol: string, timeframe: string): void {
+  interface LowerSlice {
+    series: readonly Bar[];
+    start: number;
+    end: number;
+  }
+
+  function sourceSpecs(sources: SecuritySource | SecuritySource[] | (SecuritySource | null)[] | string | string[]): SecuritySource[] {
+    if (typeof sources === 'string') return [{ name: sources }];
+    if (!Array.isArray(sources)) return [sources];
+    return sources.map((source) => (typeof source === 'string' ? { name: source } : source as SecuritySource));
+  }
+
+  function findLowerSeries(symbol: unknown, timeframe: string): readonly Bar[] | undefined {
+    const requested = canonicalTimeframe(timeframe);
+    const current = getCurrentSymbol();
+    for (const [key, series] of Object.entries(lowerBars)) {
+      const at = key.lastIndexOf('@');
+      if (at < 0) continue;
+      if (canonicalTimeframe(key.slice(at + 1)) !== requested) continue;
+      const keySymbol = key.slice(0, at);
+      if (sameSymbol(symbol, keySymbol) || sameSymbol(keySymbol, current) || sameSymbol(symbol, current)) {
+        return series;
+      }
+    }
+    return undefined;
+  }
+
+  function lowerSlice(symbol: unknown, timeframe: string): LowerSlice | null {
+    const series = findLowerSeries(symbol, timeframe);
+    if (!series) return null;
+    const index = getCurrentBarIndex();
+    const bar = bars[index];
+    if (!bar) return null;
+    const duration = timeframeSeconds(canonicalTimeframe(getCurrentTimeframe())) * 1000;
+    const from = bar.time;
+    const to = from + (duration > 0 ? duration : 1);
+    let lo = 0;
+    let hi = series.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (series[mid]!.time < from) lo = mid + 1;
+      else hi = mid;
+    }
+    let end = lo;
+    while (end < series.length && series[end]!.time < to) end += 1;
+    return { series, start: lo, end };
+  }
+
+  function sourceValue(bar: Bar, index: number, name: string): number {
+    if (name === 'time') return bar.time;
+    if (name === 'bar_index') return index;
+    if (name === 'hl2') return (bar.high + bar.low) / 2;
+    if (name === 'hlc3') return (bar.high + bar.low + bar.close) / 3;
+    if (name === 'ohlc4') return (bar.open + bar.high + bar.low + bar.close) / 4;
+    return (bar as unknown as Record<string, number>)[name] ?? NA;
+  }
+
+  function warn(symbol: string, timeframe: string, lower = false, ignore = false): void {
+    if (ignore) return;
     const key = `${symbol}@${timeframe}`;
     if (warned.has(key)) return;
     warned.add(key);
+    const current = canonicalTimeframe(getCurrentTimeframe());
+    const target = canonicalTimeframe(timeframe || current);
     onWarning(
-      `request.security(${symbol || 'chart'}, ${timeframe || 'chart'}) is not supported; its values are na`,
+      lower
+        ? `request.security(${symbol || 'chart'}, ${target}) needs ${target}-minute intrabar data; its values are na`
+        : `request.security(${symbol || 'chart'}, ${target}) is not supported; its values are na`,
+    );
+  }
+
+  function unsupportedSources(symbol: string, timeframe: string): void {
+    const key = `sources:${symbol}@${timeframe}`;
+    if (warned.has(key)) return;
+    warned.add(key);
+    onWarning(
+      `request.security(${symbol || 'chart'}, ${timeframe}) has unsupported source expressions; those values are na`,
     );
   }
 
@@ -163,12 +241,20 @@ export function createRequestModule(
     expression: any,
     _gaps: string = 'barmerge.gaps_off',
     _lookahead: string = 'barmerge.lookahead_off',
+    ignoreInvalidSymbol = false,
+    ignoreInvalidTimeframe = false,
   ): any {
     const tuple = Array.isArray(expression);
-    const currentTimeframe = getCurrentTimeframe();
-    const requested = timeframe || currentTimeframe;
-    if (!sameSymbol(symbol, getCurrentSymbol()) || canonicalTimeframe(requested) !== canonicalTimeframe(currentTimeframe)) {
-      warn(String(symbol ?? ''), requested);
+    const currentTimeframe = canonicalTimeframe(getCurrentTimeframe());
+    const requested = canonicalTimeframe(timeframe || currentTimeframe);
+    if (!sameSymbol(symbol, getCurrentSymbol())) {
+      warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
+      return tuple ? expression.map(() => NA) : NA;
+    }
+    if (requested !== currentTimeframe) {
+      const lower = timeframeSeconds(requested) > 0 && timeframeSeconds(requested) < timeframeSeconds(currentTimeframe);
+      if (lower) onLowerTimeframe(String(symbol ?? getCurrentSymbol()), requested);
+      warn(String(symbol ?? ''), requested, lower, ignoreInvalidTimeframe);
       return tuple ? expression.map(() => NA) : NA;
     }
     if (tuple) {
@@ -180,42 +266,86 @@ export function createRequestModule(
     return expression;
   }
 
+  function toUpperValues(
+    specs: (SecuritySource | null)[],
+    lookup: { buckets: Bucket[]; lookup: Int32Array },
+    currentIndex: number,
+    gaps: string,
+    lookahead: string,
+  ): any {
+    const bucketIndex = lookup.lookup[currentIndex] ?? -1;
+    if (bucketIndex < 0) return specs.map(() => NA);
+    const gapsOn = gaps === 'barmerge.gaps_on' || gaps === 'gaps_on';
+    if (gapsOn && lookup.buckets[bucketIndex]!.start !== currentIndex) return specs.map(() => NA);
+    const lookaheadOn = lookahead === 'barmerge.lookahead_on' || lookahead === 'lookahead_on';
+    return specs.map((spec) => {
+      if (!spec) return NA;
+      const target = (lookaheadOn ? bucketIndex : bucketIndex - 1) - (spec.offset ?? 0);
+      if (target < 0) return NA;
+      return bucketSource(lookup.buckets[target]!, target, spec.name);
+    });
+  }
+
   return {
     security,
     securitySource(
       symbol: string,
       timeframe: string,
-      sources: string | string[],
+      sources: SecuritySource[] | string | string[],
       gaps: string = 'barmerge.gaps_off',
       lookahead: string = 'barmerge.lookahead_off',
+      ignoreInvalidSymbol = false,
+      ignoreInvalidTimeframe = false,
     ): any {
-      const names = Array.isArray(sources) ? sources : [sources];
       const tuple = Array.isArray(sources);
+      const specs = sourceSpecs(sources);
       const currentTf = canonicalTimeframe(getCurrentTimeframe());
       const requested = canonicalTimeframe(timeframe || currentTf);
+      if (specs.some((spec) => spec === null)) unsupportedSources(String(symbol ?? ''), requested);
+      const empty = () => (tuple ? specs.map(() => NA) : NA);
+
       if (!sameSymbol(symbol, getCurrentSymbol())) {
-        warn(String(symbol ?? ''), requested);
-        return tuple ? names.map(() => NA) : NA;
+        warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
+        return empty();
       }
 
       const currentIndex = getCurrentBarIndex();
+      const currentSeconds = timeframeSeconds(currentTf);
+      const requestedSeconds = timeframeSeconds(requested);
+
       if (requested === currentTf) {
         const bar = bars[currentIndex];
-        if (!bar) return tuple ? names.map(() => NA) : NA;
-        const values = names.map((name) => {
-          if (name === 'time') return bar.time;
-          if (name === 'bar_index') return currentIndex;
-          if (name === 'hl2') return (bar.high + bar.low) / 2;
-          if (name === 'hlc3') return (bar.high + bar.low + bar.close) / 3;
-          if (name === 'ohlc4') return (bar.open + bar.high + bar.low + bar.close) / 4;
-          return (bar as unknown as Record<string, number>)[name] ?? NA;
+        if (!bar) return empty();
+        const values = specs.map((spec) => {
+          if (!spec) return NA;
+          const index = currentIndex - (spec.offset ?? 0);
+          const target = bars[index];
+          return target ? sourceValue(target, index, spec.name) : NA;
         });
         return tuple ? values : values[0];
       }
 
-      if (timeframeSeconds(requested) <= timeframeSeconds(currentTf)) {
-        warn(String(symbol ?? ''), requested);
-        return tuple ? names.map(() => NA) : NA;
+      if (requestedSeconds > 0 && requestedSeconds < currentSeconds) {
+        onLowerTimeframe(String(symbol ?? getCurrentSymbol()), requested);
+        const slice = lowerSlice(symbol, requested);
+        if (!slice) {
+          warn(String(symbol ?? ''), requested, true, ignoreInvalidTimeframe);
+          return empty();
+        }
+        const lookaheadOn = lookahead === 'barmerge.lookahead_on' || lookahead === 'lookahead_on';
+        const values = specs.map((spec) => {
+          if (!spec) return NA;
+          const base = lookaheadOn ? slice.end - 1 : slice.end - 2;
+          const index = base - (spec.offset ?? 0);
+          if (index < slice.start || index >= slice.end) return NA;
+          return sourceValue(slice.series[index]!, index, spec.name);
+        });
+        return tuple ? values : values[0];
+      }
+
+      if (requestedSeconds === 0) {
+        warn(String(symbol ?? ''), requested, false, ignoreInvalidTimeframe);
+        return empty();
       }
 
       let cached = bucketCache.get(requested);
@@ -223,22 +353,71 @@ export function createRequestModule(
         cached = buildBuckets(bars, requested);
         bucketCache.set(requested, cached);
       }
-      const bucketIndex = cached.lookup[currentIndex] ?? -1;
-      if (bucketIndex < 0) return tuple ? names.map(() => NA) : NA;
-      const gapsOn = gaps === 'barmerge.gaps_on' || gaps === 'gaps_on';
-      if (gapsOn && cached.buckets[bucketIndex]!.start !== currentIndex) {
-        return tuple ? names.map(() => NA) : NA;
-      }
-      const lookaheadOn = lookahead === 'barmerge.lookahead_on' || lookahead === 'lookahead_on';
-      const target = lookaheadOn ? bucketIndex : bucketIndex - 1;
-      if (target < 0) return tuple ? names.map(() => NA) : NA;
-      const bucket = cached.buckets[target]!;
-      const values = names.map((name) => bucketSource(bucket, target, name));
+      const values = toUpperValues(specs, cached, currentIndex, gaps, lookahead);
       return tuple ? values : values[0];
     },
-    security_lower_tf(_symbol: string, _timeframe: string, expression: any): any {
-      unsupported('security_lower_tf');
-      return Array.isArray(expression) ? expression.map(() => NA) : [NA];
+    securityLowerSource(
+      symbol: string,
+      timeframe: string,
+      sources: (SecuritySource | null)[],
+      ignoreInvalidSymbol = false,
+      ignoreInvalidTimeframe = false,
+    ): any {
+      const currentTf = canonicalTimeframe(getCurrentTimeframe());
+      const requested = canonicalTimeframe(timeframe || currentTf);
+      const currentIndex = getCurrentBarIndex();
+      if (sources.some((spec) => spec === null)) unsupportedSources(String(symbol ?? ''), requested);
+      const empty = () => sources.map(() => [NA]);
+      if (!sameSymbol(symbol, getCurrentSymbol())) {
+        warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
+        return empty();
+      }
+      const currentSeconds = timeframeSeconds(currentTf);
+      const requestedSeconds = timeframeSeconds(requested);
+      if (requested === currentTf) {
+        const bar = bars[currentIndex];
+        return bar
+          ? sources.map((spec) => (spec ? [sourceValue(bar, currentIndex, spec.name)] : [NA]))
+          : empty();
+      }
+      if (!(requestedSeconds > 0 && requestedSeconds < currentSeconds)) {
+        warn(String(symbol ?? ''), requested, false, ignoreInvalidTimeframe);
+        return empty();
+      }
+      onLowerTimeframe(String(symbol ?? getCurrentSymbol()), requested);
+      const slice = lowerSlice(symbol, requested);
+      if (!slice) {
+        warn(String(symbol ?? ''), requested, true, ignoreInvalidTimeframe);
+        return empty();
+      }
+      return sources.map((spec) => {
+        if (!spec) return new Array<number>(slice.end - slice.start).fill(NA);
+        const values: number[] = [];
+        for (let index = slice.start; index < slice.end; index++) {
+          values.push(sourceValue(slice.series[index]!, index, spec.name));
+        }
+        return values;
+      });
+    },
+    security_lower_tf(
+      symbol: string,
+      timeframe: string,
+      expression: any,
+      ignoreInvalidSymbol = false,
+      ignoreInvalidTimeframe = false,
+    ): any {
+      const currentTf = canonicalTimeframe(getCurrentTimeframe());
+      const requested = canonicalTimeframe(timeframe || currentTf);
+      if (!sameSymbol(symbol, getCurrentSymbol())) {
+        warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
+      } else if (requested !== currentTf) {
+        const lower = timeframeSeconds(requested) > 0 && timeframeSeconds(requested) < timeframeSeconds(currentTf);
+        if (lower) onLowerTimeframe(String(symbol ?? getCurrentSymbol()), requested);
+        warn(String(symbol ?? ''), requested, lower, ignoreInvalidTimeframe);
+      } else {
+        unsupported('security_lower_tf');
+      }
+      return Array.isArray(expression) ? expression.map(() => [NA]) : [NA];
     },
     currency_rate(from: string, to: string): number {
       if (String(from) === String(to)) return 1;

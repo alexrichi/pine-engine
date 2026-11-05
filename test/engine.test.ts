@@ -981,6 +981,51 @@ plot(b + c + array.size(colors))`,
     expect(result.plots[0]!.values.some((value) => Number.isFinite(value))).toBe(true);
   });
 
+  it('reads lower-timeframe bars through request.security and security_lower_tf', () => {
+    const chartBars: PineBar[] = Array.from({ length: 4 }, (_, index) => ({
+      time: index * 15 * 60_000,
+      open: 100 + index,
+      high: 110 + index,
+      low: 90 + index,
+      close: 100 + index,
+      volume: 10,
+    }));
+    const lowerBars: PineBar[] = Array.from({ length: 60 }, (_, index) => ({
+      time: index * 60_000,
+      open: 100 + index,
+      high: 101 + index,
+      low: 99 + index,
+      close: 100 + index,
+      volume: 1,
+    }));
+    const requested: string[] = [];
+    const result = runPineScript({
+      source: `//@version=6
+indicator("LTF")
+[times, closes] = request.security_lower_tf(syminfo.tickerid, "1", [time, close])
+plot(array.size(times), "Count")
+plot(array.get(closes, 0), "First close")
+[confirmedClose, confirmedOpen] = request.security(syminfo.tickerid, "1", [close[1], open[1]], lookahead = barmerge.lookahead_on)
+plot(confirmedClose, "Confirmed close")
+plot(confirmedOpen, "Confirmed open")`,
+      bars: chartBars,
+      lowerBars: { 'BINANCE:BTCUSDT.P@1': lowerBars },
+      onLowerTimeframe: (symbol, timeframe) => requested.push(`${symbol}@${timeframe}`),
+      timeframe: '15',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(requested).toContain('BINANCE:BTCUSDT.P@1');
+    const count = result.plots.find((plot) => plot.title === 'Count')!;
+    expect(count.values[0]).toBe(15);
+    const firstClose = result.plots.find((plot) => plot.title === 'First close')!;
+    expect(firstClose.values[0]).toBe(100);
+    const confirmedClose = result.plots.find((plot) => plot.title === 'Confirmed close')!;
+    expect(confirmedClose.values[0]).toBe(113);
+    const confirmedOpen = result.plots.find((plot) => plot.title === 'Confirmed open')!;
+    expect(confirmedOpen.values[0]).toBe(113);
+  });
+
   it('returns per-bar plotcandle colors', () => {
     const result = runPineScript({
       source: `//@version=6

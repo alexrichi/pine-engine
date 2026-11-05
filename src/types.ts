@@ -264,6 +264,13 @@ export interface PineRunBars {
   symbol?: string;
   /** Input overrides for this run; they win over the compile-time values. */
   inputs?: Record<string, number | boolean | string>;
+  /**
+   * Bars for lower timeframes, keyed `<symbol>@<canonical timeframe>`.
+   * Used by `request.security` and `request.security_lower_tf`.
+   */
+  lowerBars?: Record<string, readonly PineBar[]>;
+  /** Called when a script asks for a lower timeframe that the host can supply. */
+  onLowerTimeframe?: (symbol: string, timeframe: string) => void;
 }
 
 export interface PineRunResult {
