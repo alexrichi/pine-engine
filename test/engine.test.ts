@@ -278,7 +278,7 @@ bgcolor(bar_index > 6 ? color.new(color.red, 80) : na)`,
     expect(result.drawings.backgrounds.length).toBeGreaterThan(0);
   });
 
-  it('keeps request.security on the same timeframe and warns for another one', () => {
+  it('resamples same-symbol request.security sources on a higher timeframe', () => {
     const same = runPineScript({
       source: `//@version=6
 indicator("Security")
@@ -292,10 +292,26 @@ plot(x)`,
     expect(same.plots[0]!.values.at(-1)).toBeCloseTo(bars(20).at(-1)!.close, 10);
     expect(same.warnings).toEqual([]);
 
-    const other = runPineScript({
+    const inputBars = bars(80);
+    const higher = runPineScript({
       source: `//@version=6
 indicator("Security")
 x = request.security(syminfo.tickerid, "D", close)
+plot(x)`,
+      bars: inputBars,
+      timeframe: '60',
+      symbol: 'BINANCE:BTCUSDT',
+    });
+    expect(higher.ok).toBe(true);
+    expect(higher.plots[0]!.values.some(Number.isFinite)).toBe(true);
+    expect(higher.plots[0]!.values[24]).toBeCloseTo(inputBars[1]!.close, 10);
+    expect(higher.plots[0]!.values[26]).toBeCloseTo(inputBars[25]!.close, 10);
+    expect(higher.warnings).toEqual([]);
+
+    const other = runPineScript({
+      source: `//@version=6
+indicator("Security")
+x = request.security("BINANCE:OTHER", "D", close)
 plot(x)`,
       bars: bars(20),
       timeframe: '60',
@@ -406,21 +422,34 @@ plot(array.size(a), "size")`,
     expect(result.plots[0]!.values.at(-1)).toBe(1);
   });
 
-  it('returns an na tuple from an unsupported request.security call', () => {
+  it('returns a tuple for same-symbol request.security sources', () => {
     const result = runPineScript({
       source: `//@version=6
 indicator("Security tuple")
 [x, y] = request.security(syminfo.tickerid, "D", [close, open])
 plot(x, "x")
 plot(y, "y")`,
-      bars: bars(10),
+      bars: bars(80),
       timeframe: '60',
       symbol: 'BINANCE:BTCUSDT',
     });
     expect(result.ok).toBe(true);
-    expect(result.plots[0]!.values.every(Number.isNaN)).toBe(true);
-    expect(result.plots[1]!.values.every(Number.isNaN)).toBe(true);
-    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.plots[0]!.values.some(Number.isFinite)).toBe(true);
+    expect(result.plots[1]!.values.some(Number.isFinite)).toBe(true);
+    expect(result.warnings).toEqual([]);
+
+    const unsupported = runPineScript({
+      source: `//@version=6
+indicator("Security tuple")
+[x, y] = request.security(syminfo.tickerid, "D", [close + 1, open])
+plot(x, "x")
+plot(y, "y")`,
+      bars: bars(80),
+      timeframe: '60',
+      symbol: 'BINANCE:BTCUSDT',
+    });
+    expect(unsupported.plots[0]!.values.every(Number.isNaN)).toBe(true);
+    expect(unsupported.warnings.length).toBeGreaterThan(0);
   });
 
   it('ignores drawing deletes on na', () => {

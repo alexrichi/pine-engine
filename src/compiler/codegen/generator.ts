@@ -28,7 +28,11 @@ const KNOWN_NAMESPACES = new Set([
   'map', 'matrix', 'input', 'chart', 'runtime', 'linefill', 'polyline',
 ]);
 
-/** Array methods that can appear on an arbitrary member expression. */
+/** Builtin sources that request.security can resample from the chart's own bars. */
+const SECURITY_SOURCES = new Set([
+  'open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4', 'time', 'bar_index',
+]);
+
 const ARRAY_METHODS = new Set([
   'size', 'get', 'set', 'push', 'pop', 'shift', 'unshift', 'clear', 'remove',
   'insert', 'sort', 'reverse', 'join', 'slice', 'includes', 'indexof',
@@ -1079,6 +1083,20 @@ export class CodeGenerator {
       return `__rt.timeCloseCall(${this.genArgs(call.args)})`;
     }
 
+    // Higher-timeframe builtin sources can be resampled from the chart bars.
+    // Arbitrary expressions still return na with a warning.
+    if (calleeName === 'request.security') {
+      const sources = this.securitySources(call.args[2]?.value);
+      if (sources) {
+        const symbol = call.args[0] ? this.genExpr(call.args[0].value) : 'undefined';
+        const timeframe = call.args[1] ? this.genExpr(call.args[1].value) : 'undefined';
+        const gaps = call.args[3] ? this.genExpr(call.args[3].value) : 'undefined';
+        const lookahead = call.args[4] ? this.genExpr(call.args[4].value) : 'undefined';
+        const value = sources.length === 1 ? sources[0] : sources;
+        return `__rt.request.securitySource(${symbol}, ${timeframe}, ${JSON.stringify(value)}, ${gaps}, ${lookahead})`;
+      }
+    }
+
     // Try to map to runtime
     const mapped = this.mapper.mapFunction(calleeName);
     if (mapped !== undefined) {
@@ -1242,6 +1260,25 @@ export class CodeGenerator {
     const calleeStr = this.genExpr(call.callee);
     const args = this.genArgs(call.args);
     return `${calleeStr}(${args})`;
+  }
+
+  private securitySources(expr: Expression | undefined): string[] | null {
+    if (!expr) return null;
+    if (expr.kind === 'IdentifierExpression') {
+      const name = (expr as IdentifierExpression).name;
+      return SECURITY_SOURCES.has(name) ? [name] : null;
+    }
+    if (expr.kind === 'ArrayLiteralExpression') {
+      const names: string[] = [];
+      for (const element of (expr as ArrayLiteralExpression).elements) {
+        if (element.kind !== 'IdentifierExpression') return null;
+        const name = (element as IdentifierExpression).name;
+        if (!SECURITY_SOURCES.has(name)) return null;
+        names.push(name);
+      }
+      return names.length > 0 ? names : null;
+    }
+    return null;
   }
 
   private genDrawingNew(call: CallExpression, kind: 'line' | 'box' | 'label'): string {

@@ -37,8 +37,10 @@ comes back as `{ ok: false, error }`.
 
 ## Behaviour
 
-- `request.security` works only for the chart's own symbol and timeframe. Any
-  other symbol or timeframe returns `na` and adds a warning; the engine has no
+- `request.security` works for the chart's own symbol on its own timeframe and,
+  for builtin source expressions (`close`, `[open, close, time]`, ...), on a
+  higher timeframe by resampling the chart's bars. Other expressions, lower
+  timeframes or foreign symbols return `na` and add a warning; the engine has no
   second data feed. The other `request.*` data functions are callable but also
   return `na` with a warning, so scripts that use them still run.
 - `ticker.heikinashi/renko/kagi/linebreak/pointfigure` append a chart-type
