@@ -52,8 +52,9 @@ comes back as `{ ok: false, error }`.
 - `var` initializes on the first bar from that bar's data.
 - `line`, `box`, `label`, `bgcolor` and `table` calls run; the engine returns the
   final drawing objects, not the construction events.
-- `alert()` is a no-op. `plotshape`/`plotchar` values are collected but not
-  rendered by the app.
+- `plotshape`/`plotchar`/`plotarrow` points are returned as shape markers; the
+  chart adapter draws them as label shapes.
+- `alert()` is a no-op.
 
 ## Tests
 

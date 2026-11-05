@@ -761,4 +761,22 @@ plot(close)`,
       height: 10,
     });
   });
+
+  it('returns plotshape markers for the chart adapter', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Shapes")
+plotshape(bar_index > 0 and bar_index % 10 == 0 ? 1 : na, "Buy", style=shape.triangleup, location=location.belowbar, color=color.green, text="B")
+plotchar(bar_index == 5 ? 1 : na, "Char", char="X", location=location.abovebar, color=color.blue)
+plotarrow(bar_index % 2 == 0 ? 1 : -1, "Arrow", colorup=color.green, colordown=color.red)
+plot(close)`,
+      bars: bars(20),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.shapes.some((shape) => shape.style === 'triangleup' && shape.text === 'B')).toBe(true);
+    expect(result.shapes.some((shape) => shape.style === 'text_outline' && shape.text === 'X')).toBe(true);
+    expect(result.shapes.some((shape) => shape.style === 'arrowup' && shape.color === '#4CAF50')).toBe(true);
+    expect(result.shapes.some((shape) => shape.style === 'arrowdown' && shape.color === '#FF5252')).toBe(true);
+  });
 });

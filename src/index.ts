@@ -19,4 +19,5 @@ export type {
   PineTable,
   PineTableCell,
   PineTableMerge,
+  PineShapePoint,
 } from './types';

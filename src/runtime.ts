@@ -26,6 +26,7 @@ import type {
   PineTable,
   PineTableCell,
   PineTableMerge,
+  PineShapePoint,
 } from './types';
 
 export const DEFAULT_ID = 'pine-engine';
@@ -134,6 +135,7 @@ function emptyRun(
     plots: [],
     drawings: EMPTY_DRAWINGS,
     tables: [],
+    shapes: [],
     inputs,
     warnings,
     missingStd: [],
@@ -323,6 +325,67 @@ function tablesOf(result: ExecutionResult): PineTable[] {
   });
 }
 
+function shapesOf(result: ExecutionResult): PineShapePoint[] {
+  const points: PineShapePoint[] = [];
+  let group = 0;
+
+  for (const shape of result.plotshapes ?? []) {
+    const signature = group++;
+    for (const value of shape.values) {
+      if (value.value === null || value.value === 0) continue;
+      points.push({
+        group: signature,
+        title: shape.title,
+        time: value.time,
+        value: value.value,
+        text: value.text,
+        style: shape.style,
+        location: shape.location,
+        color: shape.color,
+        size: shape.size,
+      });
+    }
+  }
+
+  for (const shape of result.plotchars ?? []) {
+    const signature = group++;
+    for (const value of shape.values) {
+      if (value.value === null || value.value === 0) continue;
+      points.push({
+        group: signature,
+        title: shape.title,
+        time: value.time,
+        value: value.value,
+        text: value.text ?? shape.char,
+        style: 'text_outline',
+        location: shape.location,
+        color: shape.color,
+        size: shape.size,
+      });
+    }
+  }
+
+  for (const shape of result.plotarrows ?? []) {
+    const signature = group++;
+    for (const value of shape.values) {
+      if (value.value === null || value.value === 0) continue;
+      const up = value.value > 0;
+      points.push({
+        group: signature,
+        title: shape.title,
+        time: value.time,
+        value: value.value,
+        style: up ? 'arrowup' : 'arrowdown',
+        location: up ? 'abovebar' : 'belowbar',
+        color: up ? shape.colorup : shape.colordown,
+        size: 'normal',
+      });
+    }
+  }
+
+  return points;
+}
+
 function barOf(bar: PineBar): Bar {
   return {
     time: bar.time,
@@ -386,6 +449,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           plots: plotValues(result.plots, meta.plots, bars),
           drawings: drawingsOf(result, bars),
           tables: tablesOf(result),
+          shapes: shapesOf(result),
           inputs: meta.inputs,
           warnings: [...meta.warnings, ...runtimeWarnings],
           missingStd: result.missing ?? [],

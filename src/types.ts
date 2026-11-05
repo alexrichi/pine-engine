@@ -119,6 +119,22 @@ export interface PineTable {
   merges: PineTableMerge[];
 }
 
+/** One `plotshape`/`plotchar`/`plotarrow` marker. */
+export interface PineShapePoint {
+  /** Declaration index; points from one plot call share it. */
+  group: number;
+  title: string;
+  time: number;
+  value: number | null;
+  text?: string;
+  /** Pine shape/style token, e.g. `triangleup`, `arrowdown`, `circle`. */
+  style: string;
+  /** Pine location token: `abovebar`, `belowbar`, `top`, `bottom`, `absolute`. */
+  location: string;
+  color: string;
+  size: string;
+}
+
 export interface PineDrawings {
   lines: PineLine[];
   boxes: PineBox[];
@@ -170,6 +186,7 @@ export interface PineRunResult {
   plots: PinePlot[];
   drawings: PineDrawings;
   tables: PineTable[];
+  shapes: PineShapePoint[];
   inputs: PineInput[];
   /** Source-level limitations found at compile time plus runtime warnings. */
   warnings: string[];
