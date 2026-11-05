@@ -83,6 +83,42 @@ export interface PineBackground {
   color: string;
 }
 
+export interface PineTableCell {
+  text: string;
+  textColor: string;
+  backgroundColor: string;
+  textSize: string | number;
+  hAlign: 'left' | 'center' | 'right';
+  vAlign: 'top' | 'center' | 'bottom';
+  tooltip: string;
+  bold: boolean;
+  italic: boolean;
+  width?: number;
+  height?: number;
+  merged?: boolean;
+}
+
+export interface PineTableMerge {
+  startCol: number;
+  startRow: number;
+  endCol: number;
+  endRow: number;
+}
+
+export interface PineTable {
+  id: number;
+  position: string;
+  columns: number;
+  rows: number;
+  backgroundColor: string;
+  frameColor: string;
+  frameWidth: number;
+  borderColor: string;
+  borderWidth: number;
+  cells: (PineTableCell | null)[][];
+  merges: PineTableMerge[];
+}
+
 export interface PineDrawings {
   lines: PineLine[];
   boxes: PineBox[];
@@ -133,6 +169,7 @@ export interface PineRunResult {
   overlay: boolean;
   plots: PinePlot[];
   drawings: PineDrawings;
+  tables: PineTable[];
   inputs: PineInput[];
   /** Source-level limitations found at compile time plus runtime warnings. */
   warnings: string[];

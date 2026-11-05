@@ -728,4 +728,37 @@ plot(matrix.is_symmetric(s) ? 1 : 0, "symmetric")`,
     expect(result.plots[11]!.values.at(-1)).toBe(0);
     expect(result.plots[12]!.values.at(-1)).toBe(1);
   });
+
+  it('returns table state for the chart adapter', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Table")
+var t = table.new(position.top_right, 2, 2, bgcolor=color.new(color.blue, 80), border_color=color.red, border_width=1, frame_color=color.gray, frame_width=2)
+table.cell(t, 0, 0, "A", bgcolor=color.new(color.green, 70), text_color=color.white, text_size="small", text_halign="left", text_valign="top", tooltip="tip", width=25, height=10)
+table.cell(t, 1, 0, "B")
+table.merge_cells(t, 0, 1, 1, 1)
+plot(close)`,
+      bars: bars(5),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0]).toMatchObject({
+      position: 'top_right',
+      columns: 2,
+      rows: 2,
+      borderWidth: 1,
+      frameWidth: 2,
+      merges: [{ startCol: 0, startRow: 1, endCol: 1, endRow: 1 }],
+    });
+    expect(result.tables[0]!.cells[0]![0]).toMatchObject({
+      text: 'A',
+      textSize: 'small',
+      hAlign: 'left',
+      vAlign: 'top',
+      tooltip: 'tip',
+      width: 25,
+      height: 10,
+    });
+  });
 });

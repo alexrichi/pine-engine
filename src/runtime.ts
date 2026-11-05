@@ -23,6 +23,9 @@ import type {
   PineRunBars,
   PineRunResult,
   PineScriptMeta,
+  PineTable,
+  PineTableCell,
+  PineTableMerge,
 } from './types';
 
 export const DEFAULT_ID = 'pine-engine';
@@ -130,6 +133,7 @@ function emptyRun(
     overlay: false,
     plots: [],
     drawings: EMPTY_DRAWINGS,
+    tables: [],
     inputs,
     warnings,
     missingStd: [],
@@ -243,6 +247,82 @@ function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDraw
   return { lines, boxes, labels, backgrounds };
 }
 
+function tableDimension(value: unknown): number | undefined {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
+function tablesOf(result: ExecutionResult): PineTable[] {
+  return ((result.tables ?? []) as Record<string, unknown>[]).map((raw) => {
+    const rows = Number(raw.rows ?? 0);
+    const columns = Number(raw.columns ?? 0);
+    const rawCells = (raw.cells ?? []) as (Record<string, unknown> | null)[][];
+    const merges: PineTableMerge[] = [];
+    const covered = new Set<string>();
+
+    const cells: (PineTableCell | null)[][] = [];
+    for (let row = 0; row < rows; row++) {
+      const outputRow: (PineTableCell | null)[] = [];
+      for (let column = 0; column < columns; column++) {
+        const cell = rawCells[row]?.[column];
+        if (!cell) {
+          outputRow.push(null);
+          continue;
+        }
+        const colspan = Number(cell.colspan ?? 1);
+        const rowspan = Number(cell.rowspan ?? 1);
+        if (colspan > 1 || rowspan > 1) {
+          merges.push({
+            startCol: column,
+            startRow: row,
+            endCol: column + colspan - 1,
+            endRow: row + rowspan - 1,
+          });
+          for (let r = row; r < row + rowspan; r++) {
+            for (let c = column; c < column + colspan; c++) {
+              if (r !== row || c !== column) covered.add(`${r}:${c}`);
+            }
+          }
+        }
+        const formatting = String(cell.text_formatting ?? '');
+        outputRow.push({
+          text: String(cell.text ?? ''),
+          textColor: String(cell.text_color ?? ''),
+          backgroundColor: String(cell.bgcolor ?? ''),
+          textSize: (cell.text_size as string | number | undefined) ?? 'auto',
+          hAlign: cell.text_halign === 'left' || cell.text_halign === 'right'
+            ? cell.text_halign
+            : 'center',
+          vAlign: cell.text_valign === 'top' || cell.text_valign === 'bottom'
+            ? cell.text_valign
+            : 'center',
+          tooltip: String(cell.tooltip ?? ''),
+          bold: /bold/i.test(formatting),
+          italic: /italic/i.test(formatting),
+          width: tableDimension(cell.width),
+          height: tableDimension(cell.height),
+          merged: covered.has(`${row}:${column}`),
+        });
+      }
+      cells.push(outputRow);
+    }
+
+    return {
+      id: Number(raw.id),
+      position: String(raw.position ?? 'top_right'),
+      columns,
+      rows,
+      backgroundColor: String(raw.bgcolor ?? ''),
+      frameColor: String(raw.frame_color ?? ''),
+      frameWidth: Number(raw.frame_width ?? 0),
+      borderColor: String(raw.border_color ?? ''),
+      borderWidth: Number(raw.border_width ?? 0),
+      cells,
+      merges,
+    };
+  });
+}
+
 function barOf(bar: PineBar): Bar {
   return {
     time: bar.time,
@@ -305,6 +385,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           overlay: meta.overlay,
           plots: plotValues(result.plots, meta.plots, bars),
           drawings: drawingsOf(result, bars),
+          tables: tablesOf(result),
           inputs: meta.inputs,
           warnings: [...meta.warnings, ...runtimeWarnings],
           missingStd: result.missing ?? [],

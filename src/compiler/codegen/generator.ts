@@ -1063,6 +1063,9 @@ export class CodeGenerator {
 
     // Drawing constructors take positional anchors plus a single options
     // object; Pine code usually supplies the options as named arguments.
+    // Tables take positional anchors plus a single options object.
+    if (calleeName === 'table.new') return this.genTableCall(call, 'new');
+    if (calleeName === 'table.cell') return this.genTableCall(call, 'cell');
     if (calleeName === 'line.new') return this.genDrawingNew(call, 'line');
     if (calleeName === 'box.new') return this.genDrawingNew(call, 'box');
     if (calleeName === 'label.new') return this.genDrawingNew(call, 'label');
@@ -1279,6 +1282,41 @@ export class CodeGenerator {
       return names.length > 0 ? names : null;
     }
     return null;
+  }
+
+  private genTableCall(call: CallExpression, kind: 'new' | 'cell'): string {
+    const required =
+      kind === 'new' ? ['position', 'columns', 'rows'] : ['table_id', 'column', 'row', 'text'];
+    const optional =
+      kind === 'new'
+        ? ['bgcolor', 'border_color', 'border_width', 'frame_color', 'frame_width']
+        : ['width', 'height', 'bgcolor', 'text_color', 'text_size', 'text_halign',
+           'text_valign', 'tooltip', 'text_font_family', 'text_formatting'];
+    const slots: (string | null)[] = required.map(() => null);
+    const options: string[] = [];
+    let positionalIndex = 0;
+
+    for (const arg of call.args) {
+      const value = this.genExpr(arg.value);
+      if (arg.name === null) {
+        if (positionalIndex < required.length) slots[positionalIndex] = value;
+        else {
+          const key = optional[positionalIndex - required.length];
+          if (key) options.push(`${JSON.stringify(key)}: ${value}`);
+        }
+        positionalIndex++;
+      } else {
+        const index = kind === 'cell' && arg.name === 'table'
+          ? 0
+          : required.indexOf(arg.name);
+        if (index >= 0) slots[index] = value;
+        else options.push(`${JSON.stringify(arg.name)}: ${value}`);
+      }
+    }
+
+    const args: string[] = slots.map((slot) => slot ?? 'undefined');
+    if (options.length > 0) args.push(`{${options.join(', ')}}`);
+    return `__rt.table.${kind}(${args.join(', ')})`;
   }
 
   private genDrawingNew(call: CallExpression, kind: 'line' | 'box' | 'label'): string {

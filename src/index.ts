@@ -16,4 +16,7 @@ export type {
   PineRunBars,
   PineRunResult,
   PineScriptMeta,
+  PineTable,
+  PineTableCell,
+  PineTableMerge,
 } from './types';
