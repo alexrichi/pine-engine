@@ -27,11 +27,22 @@ import type {
   PineTableCell,
   PineTableMerge,
   PineShapePoint,
+  PineCandleSeries,
+  PineLinefill,
+  PinePolyline,
+  PinePolylinePoint,
 } from './types';
 
 export const DEFAULT_ID = 'pine-engine';
 
-const EMPTY_DRAWINGS: PineDrawings = { lines: [], boxes: [], labels: [], backgrounds: [] };
+const EMPTY_DRAWINGS: PineDrawings = {
+  lines: [],
+  boxes: [],
+  labels: [],
+  backgrounds: [],
+  linefills: [],
+  polylines: [],
+};
 
 const PLOT_TYPES: Record<string, string> = {
   line: 'line',
@@ -136,6 +147,7 @@ function emptyRun(
     drawings: EMPTY_DRAWINGS,
     tables: [],
     shapes: [],
+    candles: [],
     inputs,
     warnings,
     missingStd: [],
@@ -176,25 +188,49 @@ function lineStyleOf(value: unknown): PineLine['style'] {
   return value === 'dashed' || value === 'dotted' ? value : 'solid';
 }
 
-function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDrawings {
-  const lines: PineLine[] = [];
-  for (const raw of (result.lines ?? []) as Record<string, unknown>[]) {
-    const style = String(raw.style ?? 'solid');
-    lines.push({
-      id: Number(raw.id),
-      x1: Number(raw.x1),
-      y1: Number(raw.y1),
-      x2: Number(raw.x2),
-      y2: Number(raw.y2),
-      xloc: xlocOf(raw.xloc),
-      extend: extendOf(raw.extend),
-      color: String(raw.color ?? '#2962FF'),
-      style: lineStyleOf(style),
-      width: Number(raw.width ?? 1),
-      arrowLeft: style === 'arrow_left' || style === 'arrow_both',
-      arrowRight: style === 'arrow_right' || style === 'arrow_both',
-    });
+function lineOf(raw: Record<string, unknown>): PineLine {
+  const style = String(raw.style ?? 'solid');
+  return {
+    id: Number(raw.id),
+    x1: Number(raw.x1),
+    y1: Number(raw.y1),
+    x2: Number(raw.x2),
+    y2: Number(raw.y2),
+    xloc: xlocOf(raw.xloc),
+    extend: extendOf(raw.extend),
+    color: String(raw.color ?? '#2962FF'),
+    style: lineStyleOf(style),
+    width: Number(raw.width ?? 1),
+    arrowLeft: style === 'arrow_left' || style === 'arrow_both',
+    arrowRight: style === 'arrow_right' || style === 'arrow_both',
+  };
+}
+
+function polylinePointOf(raw: unknown): PinePolylinePoint | null {
+  if (Array.isArray(raw) && raw.length >= 2) {
+    const x = Number(raw[0]);
+    const price = Number(raw[1]);
+    return Number.isFinite(x) && Number.isFinite(price)
+      ? { xloc: 'bar_index', x, price }
+      : null;
   }
+  if (!raw || typeof raw !== 'object') return null;
+  const point = raw as { index?: unknown; time?: unknown; price?: unknown };
+  const price = Number(point.price);
+  if (!Number.isFinite(price)) return null;
+  if (point.index !== undefined && Number.isFinite(Number(point.index))) {
+    return { xloc: 'bar_index', x: Number(point.index), price };
+  }
+  if (point.time !== undefined && Number.isFinite(Number(point.time))) {
+    return { xloc: 'bar_time', x: Number(point.time), price };
+  }
+  return null;
+}
+
+function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDrawings {
+  const rawLines = (result.lines ?? []) as Record<string, unknown>[];
+  const lines: PineLine[] = rawLines.map(lineOf);
+  const lineById = new Map(lines.map((line) => [line.id, line]));
 
   const boxes: PineBox[] = ((result.boxes ?? []) as Record<string, unknown>[]).map((raw) => ({
     id: Number(raw.id),
@@ -246,7 +282,41 @@ function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDraw
     }
   }
 
-  return { lines, boxes, labels, backgrounds };
+  const linefills: PineDrawings['linefills'] = [];
+  for (const raw of (result.linefills ?? []) as Record<string, unknown>[]) {
+    const first = raw.line1 as Record<string, unknown> | undefined;
+    const second = raw.line2 as Record<string, unknown> | undefined;
+    if (!first || !second) continue;
+    const line1 = lineById.get(Number(first.id)) ?? lineOf(first);
+    const line2 = lineById.get(Number(second.id)) ?? lineOf(second);
+    linefills.push({
+      id: Number(raw.id),
+      line1,
+      line2,
+      color: String(raw.color ?? ''),
+    });
+  }
+
+  const polylines: PineDrawings['polylines'] = [];
+  for (const raw of (result.polylines ?? []) as Record<string, unknown>[]) {
+    const points: PinePolylinePoint[] = [];
+    for (const point of (raw.points as unknown[] | undefined) ?? []) {
+      const mapped = polylinePointOf(point);
+      if (mapped) points.push(mapped);
+    }
+    polylines.push({
+      id: Number(raw.id),
+      points,
+      curved: raw.curved === true,
+      closed: raw.closed === true,
+      lineColor: String(raw.line_color ?? ''),
+      fillColor: String(raw.fill_color ?? ''),
+      lineWidth: Number(raw.line_width ?? 1),
+      lineStyle: lineStyleOf(raw.line_style),
+    });
+  }
+
+  return { lines, boxes, labels, backgrounds, linefills, polylines };
 }
 
 function tableDimension(value: unknown): number | undefined {
@@ -386,6 +456,62 @@ function shapesOf(result: ExecutionResult): PineShapePoint[] {
   return points;
 }
 
+function candlesOf(result: ExecutionResult, bars: readonly PineBar[]): PineCandleSeries[] {
+  const byTime = new Map<number, number>();
+  bars.forEach((bar, index) => {
+    if (!byTime.has(bar.time)) byTime.set(bar.time, index);
+  });
+  const series: PineCandleSeries[] = [];
+
+  for (const candle of result.plotcandles ?? []) {
+    const values = bars.map((bar) => ({
+      time: bar.time,
+      open: Number.NaN,
+      high: Number.NaN,
+      low: Number.NaN,
+      close: Number.NaN,
+    }));
+    for (const value of candle.values) {
+      const index = byTime.get(value.time);
+      if (index === undefined) continue;
+      values[index] = value;
+    }
+    series.push({
+      id: candle.index,
+      title: candle.title,
+      kind: 'candle',
+      color: candle.color,
+      wickColor: candle.wickcolor,
+      borderColor: candle.bordercolor,
+      bars: values,
+    });
+  }
+
+  for (const barPlot of result.plotbars ?? []) {
+    const values = bars.map((bar) => ({
+      time: bar.time,
+      open: Number.NaN,
+      high: Number.NaN,
+      low: Number.NaN,
+      close: Number.NaN,
+    }));
+    for (const value of barPlot.values) {
+      const index = byTime.get(value.time);
+      if (index === undefined) continue;
+      values[index] = value;
+    }
+    series.push({
+      id: barPlot.index,
+      title: barPlot.title,
+      kind: 'bar',
+      color: barPlot.color,
+      bars: values,
+    });
+  }
+
+  return series;
+}
+
 function barOf(bar: PineBar): Bar {
   return {
     time: bar.time,
@@ -450,6 +576,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           drawings: drawingsOf(result, bars),
           tables: tablesOf(result),
           shapes: shapesOf(result),
+          candles: candlesOf(result, bars),
           inputs: meta.inputs,
           warnings: [...meta.warnings, ...runtimeWarnings],
           missingStd: result.missing ?? [],

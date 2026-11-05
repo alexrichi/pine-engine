@@ -67,6 +67,12 @@ export interface RuntimeContext {
     fg_color: string;
     border_color: string;
     text_color: string;
+    point: {
+      new: (time: number, price: number) => unknown;
+      from_index: (index: number, price: number) => unknown;
+      from_time: (time: number, price: number) => unknown;
+      copy: (point: unknown) => unknown;
+    };
   };
 
   // Drawing object modules
@@ -362,6 +368,20 @@ export function createContext(
       fg_color: '#d1d4dc',
       border_color: '#2a2e39',
       text_color: '#d1d4dc',
+      point: {
+        new(time: number, price: number) {
+          return { time, price };
+        },
+        from_index(index: number, price: number) {
+          return { index, price };
+        },
+        from_time(time: number, price: number) {
+          return { time, price };
+        },
+        copy(point: unknown) {
+          return point && typeof point === 'object' ? { ...(point as object) } : { price: Number.NaN };
+        },
+      },
     },
 
     // Drawing objects

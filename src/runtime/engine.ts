@@ -135,6 +135,8 @@ export function executeRunner(
     labels: ctx.label?.all ?? [],
     boxes: ctx.box?.all ?? [],
     tables: ctx.table?.all ?? [],
+    linefills: ctx.linefill?.all ?? [],
+    polylines: ctx.polyline?.all ?? [],
     missing: [...internals.missing].sort(),
     warnings: internals.warnings,
   };

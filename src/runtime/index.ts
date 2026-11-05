@@ -98,6 +98,8 @@ export interface ExecutionResult {
   labels?: any[];
   boxes?: any[];
   tables?: any[];
+  linefills?: any[];
+  polylines?: any[];
   /** Builtin names the runtime had to stub. */
   missing?: string[];
   /** Runtime warnings such as unsupported request.security calls. */

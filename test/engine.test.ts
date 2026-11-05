@@ -676,13 +676,16 @@ if barstate.islast
     fill = linefill.new(a, b, color.new(color.blue, 80))
     linefill.set_color(fill, color.new(color.red, 50))
     poly = polyline.new(array.from([0, 1], [1, 2]), false, false)
-    polyline.delete(poly)
 plot(close, "close")`,
       bars: bars(5),
       timeframe: '60',
     });
     expect(result.ok).toBe(true);
     expect(result.missingStd).toEqual([]);
+    expect(result.drawings.linefills).toHaveLength(1);
+    expect(result.drawings.linefills[0]!.line1.id).toBe(0);
+    expect(result.drawings.polylines).toHaveLength(1);
+    expect(result.drawings.polylines[0]!.points).toHaveLength(2);
   });
 
   it('covers matrix creation, math and predicates', () => {
@@ -778,5 +781,21 @@ plot(close)`,
     expect(result.shapes.some((shape) => shape.style === 'text_outline' && shape.text === 'X')).toBe(true);
     expect(result.shapes.some((shape) => shape.style === 'arrowup' && shape.color === '#4CAF50')).toBe(true);
     expect(result.shapes.some((shape) => shape.style === 'arrowdown' && shape.color === '#FF5252')).toBe(true);
+  });
+
+  it('returns plotcandle and plotbar series', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Candles")
+plotcandle(open, high, low, close, "Candle", color=color.green, wickcolor=color.red, bordercolor=color.blue)
+plotbar(open, high, low, close, "Bar", color=color.green)`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.candles).toHaveLength(2);
+    expect(result.candles[0]).toMatchObject({ title: 'Candle', kind: 'candle', color: '#4CAF50', wickColor: '#FF5252', borderColor: '#2962FF' });
+    expect(result.candles[1]).toMatchObject({ title: 'Bar', kind: 'bar', color: '#4CAF50' });
+    expect(result.candles[0]!.bars).toHaveLength(10);
   });
 });

@@ -135,11 +135,56 @@ export interface PineShapePoint {
   size: string;
 }
 
+/** A `plotcandle`/`plotbar` series. */
+export interface PineCandleSeries {
+  id: number;
+  title: string;
+  kind: 'candle' | 'bar';
+  color: string;
+  wickColor?: string;
+  borderColor?: string;
+  bars: {
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+  }[];
+}
+
 export interface PineDrawings {
   lines: PineLine[];
   boxes: PineBox[];
   labels: PineLabel[];
   backgrounds: PineBackground[];
+  linefills: PineLinefill[];
+  polylines: PinePolyline[];
+}
+
+/** A `linefill.new(line1, line2, color)` band. */
+export interface PineLinefill {
+  id: number;
+  line1: PineLine;
+  line2: PineLine;
+  color: string;
+}
+
+export interface PinePolylinePoint {
+  xloc: 'bar_index' | 'bar_time';
+  x: number;
+  price: number;
+}
+
+/** A `polyline.new(...)` path. */
+export interface PinePolyline {
+  id: number;
+  points: PinePolylinePoint[];
+  curved: boolean;
+  closed: boolean;
+  lineColor: string;
+  fillColor: string;
+  lineWidth: number;
+  lineStyle: PineLineStyle;
 }
 
 export interface PineInput {
@@ -187,6 +232,7 @@ export interface PineRunResult {
   drawings: PineDrawings;
   tables: PineTable[];
   shapes: PineShapePoint[];
+  candles: PineCandleSeries[];
   inputs: PineInput[];
   /** Source-level limitations found at compile time plus runtime warnings. */
   warnings: string[];

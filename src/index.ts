@@ -6,6 +6,9 @@ export type {
   PineBox,
   PineCompileOptions,
   PineDrawings,
+  PineLinefill,
+  PinePolyline,
+  PinePolylinePoint,
   PineInput,
   PineLabel,
   PineLine,
@@ -20,4 +23,5 @@ export type {
   PineTableCell,
   PineTableMerge,
   PineShapePoint,
+  PineCandleSeries,
 } from './types';
