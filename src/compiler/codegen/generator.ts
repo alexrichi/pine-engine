@@ -2205,6 +2205,20 @@ private fnParams = new Set<string>();
   }
 
   private resolveColor(expr: Expression): string | undefined {
+    // `color.new(#3179f5, 80)` keeps its transparency as an alpha suffix.
+    if (expr.kind === 'CallExpression') {
+      const call = expr as CallExpression;
+      if (this.calleeToString(call.callee) === 'color.new') {
+        const base = this.resolveColor(call.args[0]?.value);
+        const transparency = this.getLiteralValue(call.args[1]?.value);
+        if (base && typeof transparency === 'number') {
+          const alpha = Math.round((1 - Math.max(0, Math.min(100, transparency)) / 100) * 255)
+            .toString(16)
+            .padStart(2, '0');
+          return `${base.slice(0, 7)}${alpha}`;
+        }
+      }
+    }
     // Check if it's a color constant member expression or identifier
     if (expr.kind === 'MemberExpression') {
       const mem = expr as MemberExpression;
@@ -2215,8 +2229,8 @@ private fnParams = new Set<string>();
     }
     if (expr.kind === 'IdentifierExpression') {
       const name = (expr as IdentifierExpression).name;
-      const hex = COLOR_CONSTANTS[name];
-      if (hex) return hex;
+      const hex = COLOR_CONSTANTS[name] ?? this.constLiterals.get(name);
+      if (typeof hex === 'string') return hex;
     }
     if (expr.kind === 'LiteralExpression') {
       const lit = expr as LiteralExpression;

@@ -116,6 +116,18 @@ plot(vals.get(0), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
   });
 
+  it('keeps transparency in color input defaults', () => {
+    const compiled = compilePine({
+      source: `//@version=6
+indicator("color")
+c = input.color(color.new(#3179f5, 80), "OB")
+plot(close, "c")
+`,
+    });
+    expect(compiled.ok).toBe(true);
+    expect(compiled.meta.inputs[0]!.defval).toBe('#3179f533');
+  });
+
   it('lets a parameter shadow a var declared in another function', () => {
     const result = run(`//@version=6
 indicator("shadow")
