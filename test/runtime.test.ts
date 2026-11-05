@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { executeScript, indicator, input, plot, ta, close } from 'oakscriptjs/script';
-import { runPineScript, type PineBar } from '../src';
+import { compilePine, runPineScript, type PineBar } from '../src';
 
 const RSI_SCRIPT = `//@version=6
 indicator("RSI", overlay=false)
@@ -86,6 +86,26 @@ describe('runPineScript', () => {
     for (const plot of result.plots) {
       expect(plot.values.some((value) => Number.isFinite(value))).toBe(true);
     }
+  });
+
+  it('compiles once and runs the same program over several bar sets', () => {
+    const program = compilePine({ source: RSI_SCRIPT, name: 'RSI' });
+    expect(program.ok).toBe(true);
+    expect(program.meta.plots.map((plot) => plot.title)).toEqual([
+      'RSI',
+      'Oversold',
+      'Overbought',
+    ]);
+
+    const first = program.run({ bars: bars(120), timeframe: '60', symbol: 'AAA' });
+    const second = program.run({ bars: bars(80), timeframe: '60', symbol: 'BBB' });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(first.plots[0]!.values).toHaveLength(120);
+    expect(second.plots[0]!.values).toHaveLength(80);
+    // A fresh run must not inherit series state from the previous one.
+    expect(first.plots[0]!.values.slice(0, 80)).toEqual(second.plots[0]!.values);
   });
 
   it('emits a visual event for line.new', () => {

@@ -8,11 +8,14 @@ export interface PineBar {
   volume: number;
 }
 
-export interface PinePlot {
+export interface PinePlotMeta {
   id: string;
   title: string;
   /** PineJS plot type: `line`, `histogram`, `column`, `area`, `shape`, `hline`. */
   type: string;
+}
+
+export interface PinePlot extends PinePlotMeta {
   /** One value per input bar; `NaN` where Pine produced `na`. */
   values: number[];
 }
@@ -32,23 +35,34 @@ export interface PineInput {
   defval: number | boolean | string;
 }
 
-export interface PineRunOptions {
+export interface PineScriptMeta {
+  name: string;
+  /** `indicator(..., overlay = true)`: draw over the price scale. */
+  overlay: boolean;
+  inputs: PineInput[];
+  plots: PinePlotMeta[];
+}
+
+export interface PineCompileOptions {
   source: string;
+  /** Stable id for the transpiled indicator; used in its metainfo. */
+  id?: string;
+  name?: string;
+  /** Input overrides keyed by the input id from the script metadata. */
+  inputs?: Record<string, number | boolean | string>;
+}
+
+export interface PineRunBars {
   bars: readonly PineBar[];
   /** Canonical timeframe key: `1`, `5`, `60`, `D`, `W`, `M`. */
   timeframe?: string;
   symbol?: string;
-  /** Input overrides keyed by the input id from the script metadata. */
-  inputs?: Record<string, number | boolean | string>;
-  id?: string;
-  name?: string;
 }
 
 export interface PineRunResult {
   ok: boolean;
   error?: string;
   name: string;
-  /** `indicator(..., overlay = true)`: draw over the price scale. */
   overlay: boolean;
   plots: PinePlot[];
   visuals: PineVisualEvent[];
@@ -58,4 +72,12 @@ export interface PineRunResult {
    * matching function. An empty list means the script ran with full coverage.
    */
   missingStd: string[];
+}
+
+export interface PineProgram {
+  ok: boolean;
+  error?: string;
+  meta: PineScriptMeta;
+  /** Run the compiled script over a bar set. Never throws. */
+  run(options: PineRunBars): PineRunResult;
 }
