@@ -239,11 +239,14 @@ plot(ta.ema(close, 20), "EMA 20", color.blue)
     expect(exec.plots[0].values.length).toBe(bars.length);
   });
 
-  it('EMA values are non-null after first bar', () => {
+  it('EMA values are non-null after its SMA seed', () => {
     const exec = compileAndRun(src);
     const values = exec.plots[0].values;
-    // EMA seeds with first value, so all subsequent bars should have values
-    for (let i = 1; i < values.length; i++) {
+    // Pine seeds EMA with SMA(close, 20); the first 19 bars are na.
+    for (let i = 0; i < 19; i++) {
+      expect(values[i].value).toBeNull();
+    }
+    for (let i = 19; i < values.length; i++) {
       expect(values[i].value).not.toBeNull();
     }
   });

@@ -165,7 +165,13 @@ export interface TaModule {
   correlation(source1: Series<number>, source2: Series<number>, length: number): number;
   dev(source: Series<number>, length: number): number;
   mfi(series: Series<number>, length: number, high?: Series<number>, low?: Series<number>, close?: Series<number>, volume?: Series<number>, id?: string): number;
-  obv(close?: Series<number>, volume?: Series<number>, id?: string): number;
+  readonly obv: number;
+  readonly accdist: number;
+  readonly nvi: number;
+  readonly pvi: number;
+  readonly pvt: number;
+  readonly wad: number;
+  readonly wvad: number;
   supertrend(factor: number, atrPeriod: number, high?: Series<number>, low?: Series<number>, close?: Series<number>, id?: string): [number, number];
 
   // P1 additions
@@ -201,15 +207,10 @@ export function createTaModule(
   // Per-run state. The compiler keys every stateful call by its source location,
   // so two ema() calls never share a slot and a scan run never inherits the
   // previous instrument's state.
-  const emaState = new Map<string, { prev: number; prevBarIndex: number }>();
+  const emaState = new Map<string, { prev: number; prevBarIndex: number; sum: number; count: number; seeded: boolean }>();
   const rsiState = new Map<string, { avgGain: number; avgLoss: number; prevVal: number; initialized: boolean; count: number }>();
-  const macdState = new Map<string, {
-    fastEma: number;
-    slowEma: number;
-    signalEma: number;
-    prevBarIndex: number;
-  }>();
-  const rmaState = new Map<string, { prev: number; prevBarIndex: number; count: number }>();
+  const rmaState = new Map<string, { prev: number; prevBarIndex: number; count: number; sum: number; seeded: boolean }>();
+  const atrState = new Map<string, { prev: number; prevBarIndex: number; sum: number; count: number; seeded: boolean }>();
   const cumState = new Map<string, { sum: number; prevBarIndex: number }>();
   const valuewhenState = new Map<string, { values: { value: number }[] }>();
   const barsSinceState = new Map<string, { lastTrueBar: number }>();
@@ -224,7 +225,7 @@ export function createTaModule(
     prevBarIndex: number;
     count: number;
   }>();
-  const obvState = new Map<string, { prevClose: number; obv: number; prevBarIndex: number }>();
+  const cumulativeState = new Map<string, { prevClose: number; prevVolume: number; value: number; barIndex: number }>();
   const supertrendState = new Map<string, {
     prevSupertrend: number;
     prevDirection: number;
@@ -280,6 +281,76 @@ export function createTaModule(
     return entry.series;
   }
 
+  type CumulativeName = 'obv' | 'accdist' | 'nvi' | 'pvi' | 'pvt' | 'wad' | 'wvad';
+  function cumulativeValue(name: CumulativeName): number {
+    const close = getClose?.();
+    const volume = getVolume?.();
+    if (!close || !volume) return NA as unknown as number;
+    const curClose = close.get(0);
+    const curVolume = volume.get(0);
+    if (isNa(curClose) || isNa(curVolume)) return NA as unknown as number;
+    const barIndex = getCurrentBarIndex();
+    let state = cumulativeState.get(name);
+    if (state && state.barIndex === barIndex) return state.value;
+
+    const initial = name === 'nvi' || name === 'pvi' ? 1000 : 0;
+    if (!state || state.barIndex !== barIndex - 1) {
+      state = { prevClose: curClose as number, prevVolume: curVolume as number, value: initial, barIndex };
+      cumulativeState.set(name, state);
+      return initial;
+    }
+
+    const c = curClose as number;
+    const v = curVolume as number;
+    let value = state.value;
+    switch (name) {
+      case 'obv':
+        if (c > state.prevClose) value += v;
+        else if (c < state.prevClose) value -= v;
+        break;
+      case 'accdist': {
+        const high = getHigh?.().get(0);
+        const low = getLow?.().get(0);
+        if (isNa(high) || isNa(low)) return NA as unknown as number;
+        const range = (high as number) - (low as number);
+        const clv = range === 0 ? 0 : ((c - (low as number)) - ((high as number) - c)) / range;
+        value += clv * v;
+        break;
+      }
+      case 'nvi':
+        if (v < state.prevVolume && state.prevClose !== 0) value += (value * (c - state.prevClose)) / state.prevClose;
+        break;
+      case 'pvi':
+        if (v > state.prevVolume && state.prevClose !== 0) value += (value * (c - state.prevClose)) / state.prevClose;
+        break;
+      case 'pvt':
+        if (state.prevClose !== 0) value += (v * (c - state.prevClose)) / state.prevClose;
+        break;
+      case 'wad': {
+        const high = getHigh?.().get(0);
+        const low = getLow?.().get(0);
+        if (isNa(high) || isNa(low)) return NA as unknown as number;
+        if (c > state.prevClose) value += c - Math.min(low as number, state.prevClose);
+        else if (c < state.prevClose) value += c - Math.max(high as number, state.prevClose);
+        break;
+      }
+      case 'wvad': {
+        const high = getHigh?.().get(0);
+        const low = getLow?.().get(0);
+        const open = getOpen?.().get(0);
+        if (isNa(high) || isNa(low) || isNa(open)) return NA as unknown as number;
+        const range = (high as number) - (low as number);
+        if (range !== 0) value += (v * (c - (open as number))) / range;
+        break;
+      }
+    }
+    state.value = value;
+    state.prevClose = c;
+    state.prevVolume = v;
+    state.barIndex = barIndex;
+    return value;
+  }
+
   const ta: TaModule = {
 
     sma(source: Series<number>, length: number, _id?: string): number {
@@ -288,20 +359,41 @@ export function createTaModule(
 
     ema(source: Series<number>, length: number, id: string = 'default_ema'): number {
       const current = source.get(0);
-      if (isNa(current)) return NA as unknown as number;
-
-      const state = emaState.get(id);
       const barIndex = getCurrentBarIndex();
+      let state = emaState.get(id);
 
       if (!state || state.prevBarIndex !== barIndex - 1) {
-        // First bar or discontinuity -- seed with current value
-        const seedVal = current as number;
-        emaState.set(id, { prev: seedVal, prevBarIndex: barIndex });
-        return seedVal;
+        state = { prev: NA as unknown as number, prevBarIndex: barIndex, sum: 0, count: 0, seeded: false };
+        emaState.set(id, state);
       }
 
-      const newVal = calcEmaInternal(current as number, state.prev, length);
-      emaState.set(id, { prev: newVal, prevBarIndex: barIndex });
+      if (isNa(current)) {
+        state.prevBarIndex = barIndex;
+        return NA as unknown as number;
+      }
+
+      const value = current as number;
+      if (length <= 1) {
+        state.prev = value;
+        state.seeded = true;
+        state.prevBarIndex = barIndex;
+        return value;
+      }
+
+      if (!state.seeded) {
+        state.sum += value;
+        state.count += 1;
+        state.prevBarIndex = barIndex;
+        if (state.count < length) return NA as unknown as number;
+        const seed = state.sum / length;
+        state.prev = seed;
+        state.seeded = true;
+        return seed;
+      }
+
+      const newVal = calcEmaInternal(value, state.prev, length);
+      state.prev = newVal;
+      state.prevBarIndex = barIndex;
       return newVal;
     },
 
@@ -375,44 +467,15 @@ export function createTaModule(
       signal: number,
       id: string = 'default_macd'
     ): [number, number, number] {
-      const current = source.get(0);
-      if (isNa(current)) return [NA as unknown as number, NA as unknown as number, NA as unknown as number];
-
-      const barIndex = getCurrentBarIndex();
-      let state = macdState.get(id);
-      const k_fast = 2 / (fast + 1);
-      const k_slow = 2 / (slow + 1);
-      const k_sig = 2 / (signal + 1);
-
-      if (!state || state.prevBarIndex !== barIndex - 1) {
-        state = {
-          fastEma: current,
-          slowEma: current,
-          signalEma: NA,
-          prevBarIndex: barIndex,
-        };
-        macdState.set(id, state);
+      const fastVal = this.ema(source, fast, `${id}:fast`);
+      const slowVal = this.ema(source, slow, `${id}:slow`);
+      if (isNa(fastVal) || isNa(slowVal)) {
         return [NA as unknown as number, NA as unknown as number, NA as unknown as number];
       }
-
-      const fastEma = isNa(state.fastEma)
-        ? (current as number)
-        : (current as number) * k_fast + (state.fastEma as number) * (1 - k_fast);
-      const slowEma = isNa(state.slowEma)
-        ? (current as number)
-        : (current as number) * k_slow + (state.slowEma as number) * (1 - k_slow);
-      const macdLine = fastEma - slowEma;
-      const signalEma = isNa(state.signalEma)
-        ? macdLine
-        : macdLine * k_sig + (state.signalEma as number) * (1 - k_sig);
-      const histogram = macdLine - signalEma;
-
-      state.fastEma = fastEma;
-      state.slowEma = slowEma;
-      state.signalEma = signalEma;
-      state.prevBarIndex = barIndex;
-
-      return [macdLine, signalEma, histogram];
+      const macdLine = (fastVal as number) - (slowVal as number);
+      const signalVal = this.ema(asSeries(macdLine, id, 0), signal, `${id}:signal`);
+      const histogram = isNa(signalVal) ? (NA as unknown as number) : macdLine - (signalVal as number);
+      return [macdLine, signalVal, histogram];
     },
 
     bb(
@@ -444,33 +507,47 @@ export function createTaModule(
       close: Series<number>,
       id: string = 'default_atr'
     ): number {
-      if (high.length < 2) return NA as unknown as number;
-
-      // True range for current bar
+      // True range for the current bar; the first bar has no previous close.
       const h = high.get(0);
       const l = low.get(0);
       const pc = close.get(1);
-      if (isNa(h) || isNa(l) || isNa(pc)) return NA as unknown as number;
+      if (isNa(h) || isNa(l)) return NA as unknown as number;
 
-      // Use RMA (Wilder's MA) = EMA with length, seeded with first true range
-      const trKey = id + '_tr';
-      let prevAtr = emaState.get(trKey);
+      const tr = isNa(pc)
+        ? (h as number) - (l as number)
+        : Math.max(
+            (h as number) - (l as number),
+            Math.abs((h as number) - (pc as number)),
+            Math.abs((l as number) - (pc as number)),
+          );
       const barIndex = getCurrentBarIndex();
+      let state = atrState.get(id);
+      if (!state || state.prevBarIndex !== barIndex - 1) {
+        state = { prev: NA as unknown as number, prevBarIndex: barIndex, sum: 0, count: 0, seeded: false };
+        atrState.set(id, state);
+      }
 
-      const tr = Math.max(
-        (h as number) - (l as number),
-        Math.abs((h as number) - (pc as number)),
-        Math.abs((l as number) - (pc as number))
-      );
-
-      if (!prevAtr || prevAtr.prevBarIndex !== barIndex - 1) {
-        emaState.set(trKey, { prev: tr, prevBarIndex: barIndex });
+      if (length <= 1) {
+        state.prev = tr;
+        state.seeded = true;
+        state.prevBarIndex = barIndex;
         return tr;
       }
 
-      // Wilder's smoothing: rma = (prev*(length-1) + tr) / length
-      const rmaVal = ((prevAtr.prev as number) * (length - 1) + tr) / length;
-      emaState.set(trKey, { prev: rmaVal, prevBarIndex: barIndex });
+      if (!state.seeded) {
+        state.sum += tr;
+        state.count += 1;
+        state.prevBarIndex = barIndex;
+        if (state.count < length) return NA as unknown as number;
+        const seed = state.sum / length;
+        state.prev = seed;
+        state.seeded = true;
+        return seed;
+      }
+
+      const rmaVal = ((state.prev as number) * (length - 1) + tr) / length;
+      state.prev = rmaVal;
+      state.prevBarIndex = barIndex;
       return rmaVal;
     },
 
@@ -633,26 +710,39 @@ export function createTaModule(
      */
     rma(source: Series<number>, length: number, id: string = 'default_rma'): number {
       const current = source.get(0);
-      if (isNa(current)) return NA as unknown as number;
-
       const barIndex = getCurrentBarIndex();
       let state = rmaState.get(id);
 
-      if (!state) {
-        state = { prev: NA, prevBarIndex: -1, count: 0 };
+      if (!state || state.prevBarIndex !== barIndex - 1) {
+        state = { prev: NA as unknown as number, prevBarIndex: barIndex, count: 0, sum: 0, seeded: false };
         rmaState.set(id, state);
       }
 
-      if (isNa(state.prev) || state.prevBarIndex !== barIndex - 1) {
-        // Seed: use current value as starting point
-        state.prev = current as number;
+      if (isNa(current)) {
         state.prevBarIndex = barIndex;
-        state.count = 1;
-        return current as number;
+        return NA as unknown as number;
       }
 
-      state.count++;
-      const rmaVal = ((state.prev as number) * (length - 1) + (current as number)) / length;
+      const value = current as number;
+      if (length <= 1) {
+        state.prev = value;
+        state.seeded = true;
+        state.prevBarIndex = barIndex;
+        return value;
+      }
+
+      if (!state.seeded) {
+        state.sum += value;
+        state.count += 1;
+        state.prevBarIndex = barIndex;
+        if (state.count < length) return NA as unknown as number;
+        const seed = state.sum / length;
+        state.prev = seed;
+        state.seeded = true;
+        return seed;
+      }
+
+      const rmaVal = ((state.prev as number) * (length - 1) + value) / length;
       state.prev = rmaVal;
       state.prevBarIndex = barIndex;
       return rmaVal;
@@ -1249,47 +1339,13 @@ export function createTaModule(
       return 100 - 100 / (1 + mfr);
     },
 
-    /**
-     * ta.obv()
-     * On Balance Volume.
-     * If close > close[1], OBV += volume
-     * If close < close[1], OBV -= volume
-     * If close == close[1], OBV unchanged
-     */
-    obv(close?: Series<number>, volume?: Series<number>, id: string = 'default_obv'): number {
-      const c = close ? close : getClose ? getClose() : undefined;
-      const v = volume ? volume : getVolume ? getVolume() : undefined;
-
-      if (!c || !v) return NA as unknown as number;
-
-      const curClose = c.get(0);
-      const curVol = v.get(0);
-      if (isNa(curClose) || isNa(curVol)) return NA as unknown as number;
-
-      const barIndex = getCurrentBarIndex();
-      let state = obvState.get(id);
-
-      if (!state || state.prevBarIndex !== barIndex - 1) {
-        state = { prevClose: curClose, obv: 0, prevBarIndex: barIndex };
-        obvState.set(id, state);
-        return 0;
-      }
-
-      const prevClose = state.prevClose as number;
-      let obvVal = state.obv;
-
-      if ((curClose as number) > prevClose) {
-        obvVal += curVol as number;
-      } else if ((curClose as number) < prevClose) {
-        obvVal -= curVol as number;
-      }
-
-      state.prevClose = curClose;
-      state.obv = obvVal;
-      state.prevBarIndex = barIndex;
-
-      return obvVal;
-    },
+    get obv(): number { return cumulativeValue('obv'); },
+    get accdist(): number { return cumulativeValue('accdist'); },
+    get nvi(): number { return cumulativeValue('nvi'); },
+    get pvi(): number { return cumulativeValue('pvi'); },
+    get pvt(): number { return cumulativeValue('pvt'); },
+    get wad(): number { return cumulativeValue('wad'); },
+    get wvad(): number { return cumulativeValue('wvad'); },
 
     /**
      * ta.supertrend(factor, atrPeriod, high?, low?, close?)
@@ -1491,12 +1547,12 @@ export function createTaModule(
         const barIndex = getCurrentBarIndex();
         const rangeState = emaState.get(rangeId);
         if (!rangeState || rangeState.prevBarIndex !== barIndex - 1) {
-          emaState.set(rangeId, { prev: curr, prevBarIndex: barIndex });
+          emaState.set(rangeId, { prev: curr, prevBarIndex: barIndex, sum: 0, count: 0, seeded: true });
           rangeVal = curr;
         } else {
           const k = 2 / (length + 1);
           rangeVal = curr * k + (rangeState.prev as number) * (1 - k);
-          emaState.set(rangeId, { prev: rangeVal, prevBarIndex: barIndex });
+          emaState.set(rangeId, { prev: rangeVal, prevBarIndex: barIndex, sum: 0, count: 0, seeded: true });
         }
       }
       if (isNa(rangeVal)) return NA3;

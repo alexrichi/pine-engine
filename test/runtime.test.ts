@@ -246,25 +246,28 @@ describe('TA: EMA', () => {
     let barIdx = 0;
     const ta = createTaModule(() => barIdx);
     const s = new Series<number>(50);
-    // Feed constant 100 — EMA should stay at 100
+    const values: number[] = [];
+    // Feed constant 100 — EMA should stay at 100 after its SMA seed.
     for (let i = 0; i < 20; i++) {
       barIdx = i;
       s.push(100);
+      values.push(ta.ema(s, 5, 'test_ema'));
     }
-    const result = ta.ema(s, 5, 'test_ema');
-    expect(result).toBeCloseTo(100, 1);
+    expect(values.slice(0, 4).every((value) => isNa(value))).toBe(true);
+    expect(values.at(-1)).toBeCloseTo(100, 1);
   });
 
   it('ema is different from sma for varying data', () => {
     let barIdx = 0;
     const ta = createTaModule(() => barIdx);
     const s = new Series<number>(50);
-    const vals = [10, 20, 30, 40, 50, 60, 70];
+    const vals = [10, 10, 10, 10, 10, 100];
+    let emaVal = NA as unknown as number;
     for (let i = 0; i < vals.length; i++) {
       barIdx = i;
       s.push(vals[i]);
+      emaVal = ta.ema(s, 3, 'ema_varying');
     }
-    const emaVal = ta.ema(s, 3, 'ema_varying');
     const smaVal = ta.sma(s, 3);
     // EMA should weight recent values more, so for rising data EMA > SMA
     expect(emaVal).toBeGreaterThan(smaVal);

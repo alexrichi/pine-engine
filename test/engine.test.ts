@@ -42,10 +42,26 @@ plot(ta.crossunder(fast, slow) ? 1 : 0, "Short")
 function ema(values: number[], length: number): number[] {
   const k = 2 / (length + 1);
   const out: number[] = [];
-  let previous = values[0]!;
-  out.push(previous);
-  for (let index = 1; index < values.length; index += 1) {
-    previous = values[index]! * k + previous * (1 - k);
+  let previous = Number.NaN;
+  let sum = 0;
+  let count = 0;
+  for (const value of values) {
+    if (!Number.isFinite(value)) {
+      out.push(Number.NaN);
+      continue;
+    }
+    if (!Number.isFinite(previous)) {
+      sum += value;
+      count += 1;
+      if (count < length) {
+        out.push(Number.NaN);
+      } else {
+        previous = sum / length;
+        out.push(previous);
+      }
+      continue;
+    }
+    previous = value * k + previous * (1 - k);
     out.push(previous);
   }
   return out;
@@ -141,8 +157,10 @@ describe('pine-engine adapter', () => {
     const expectedFast = ema(closes, 9);
     const expectedSlow = ema(closes, 21);
     for (let index = 0; index < closes.length; index += 1) {
-      expect(result.plots[0]!.values[index]).toBeCloseTo(expectedFast[index]!, 10);
-      expect(result.plots[1]!.values[index]).toBeCloseTo(expectedSlow[index]!, 10);
+      if (Number.isNaN(expectedFast[index]!)) expect(result.plots[0]!.values[index]).toBeNaN();
+      else expect(result.plots[0]!.values[index]).toBeCloseTo(expectedFast[index]!, 10);
+      if (Number.isNaN(expectedSlow[index]!)) expect(result.plots[1]!.values[index]).toBeNaN();
+      else expect(result.plots[1]!.values[index]).toBeCloseTo(expectedSlow[index]!, 10);
     }
     expect(result.plots[2]!.values.some((value) => value === 1)).toBe(true);
     expect(result.plots[3]!.values.some((value) => value === 1)).toBe(true);
@@ -1063,6 +1081,36 @@ plot(confirmedAtr, "Confirmed ATR")`,
     expect(atr.values[0]).toBeGreaterThan(0);
     const confirmed = result.plots.find((plot) => plot.title === 'Confirmed ATR')!;
     expect(confirmed.values[0]).toBeGreaterThan(0);
+  });
+
+  it('warms up ATR and exposes cumulative TA variables', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Cumulative")
+plot(ta.obv, "OBV")
+plot(ta.accdist, "AD")
+plot(ta.nvi, "NVI")
+plot(ta.pvi, "PVI")
+plot(ta.pvt, "PVT")
+plot(ta.wad, "WAD")
+plot(ta.wvad, "WVAD")
+plot(ta.atr(14), "ATR")`,
+      bars: bars(40),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    const plot = (title: string) => result.plots.find((entry) => entry.title === title)!;
+    expect(plot('OBV').values[0]).toBe(0);
+    expect(Number.isFinite(plot('OBV').values.at(-1)!)).toBe(true);
+    expect(plot('NVI').values[0]).toBe(1000);
+    expect(plot('PVI').values[0]).toBe(1000);
+    for (const title of ['AD', 'PVT', 'WAD', 'WVAD']) {
+      expect(Number.isFinite(plot(title).values.at(-1)!)).toBe(true);
+    }
+    const atr = plot('ATR').values;
+    expect(atr.slice(0, 13).every(Number.isNaN)).toBe(true);
+    expect(Number.isFinite(atr[13]!)).toBe(true);
   });
 
   it('returns per-bar plotcandle colors', () => {
