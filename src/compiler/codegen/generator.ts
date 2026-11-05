@@ -294,21 +294,21 @@ private thisAlias: string | null = null;
 
   private firstPass(program: Program): void {
     for (const stmt of program.body) {
-      // Literal constants feed input defaults and titles (`ALL = "All"`).
+      // Literal constants feed input defaults and titles (`ALL = "All"`,
+      // `TINY = size.tiny`).
       if (stmt.kind === 'VariableDeclaration') {
         const decl = stmt as VariableDeclaration;
-        if (decl.value.kind === 'LiteralExpression') {
-          const lit = decl.value as LiteralExpression;
-          if (lit.value !== null) this.constLiterals.set(decl.name, lit.value as string | number | boolean);
+        const value = this.getLiteralValue(decl.value);
+        if (value !== undefined && value !== null) {
+          this.constLiterals.set(decl.name, value as string | number | boolean);
         }
       }
       if (stmt.kind === 'AssignmentStatement') {
         const assign = stmt as AssignmentStatement;
-        if (assign.operator === '=' && assign.target.kind === 'IdentifierExpression' &&
-            assign.value.kind === 'LiteralExpression') {
-          const lit = assign.value as LiteralExpression;
-          if (lit.value !== null) {
-            this.constLiterals.set((assign.target as IdentifierExpression).name, lit.value as string | number | boolean);
+        if (assign.operator === '=' && assign.target.kind === 'IdentifierExpression') {
+          const value = this.getLiteralValue(assign.value);
+          if (value !== undefined && value !== null) {
+            this.constLiterals.set((assign.target as IdentifierExpression).name, value as string | number | boolean);
           }
         }
       }
