@@ -13,6 +13,15 @@ function pointXY(point: unknown): { x: number; y: number } | null {
   return null;
 }
 
+/** A `chart.point` anchor: x comes from `time` or `index` depending on `xloc`. */
+function pointAnchor(point: unknown, xloc: string): { x: number; y: number } | null {
+  if (!point || typeof point !== 'object') return null;
+  const value = point as { time?: unknown; index?: unknown; price?: unknown };
+  const x = Number(xloc === 'bar_time' ? value.time : value.index ?? value.time);
+  const y = Number(value.price);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
 export interface LineObject {
   id: number;
   x1: number;
@@ -31,35 +40,50 @@ export function createLineModule() {
   let nextId = 0;
   const lines: LineObject[] = [];
 
+  const createLine = (
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    opts?: {
+      xloc?: string;
+      extend?: string;
+      color?: string;
+      style?: string;
+      width?: number;
+    }
+  ): LineObject => {
+    const line: LineObject = {
+      id: nextId++,
+      x1,
+      y1,
+      x2,
+      y2,
+      xloc: opts?.xloc ?? 'bar_index',
+      extend: opts?.extend ?? 'none',
+      color: opts?.color ?? '#2962FF',
+      style: opts?.style ?? 'solid',
+      width: opts?.width ?? 1,
+      _deleted: false,
+    };
+    lines.push(line);
+    return line;
+  };
+
   return {
-    new(
-      x1: number,
-      y1: number,
-      x2: number,
-      y2: number,
-      opts?: {
-        xloc?: string;
-        extend?: string;
-        color?: string;
-        style?: string;
-        width?: number;
-      }
+    new: createLine,
+
+    /** `line.new(first_point, second_point, ...)` with `chart.point` anchors. */
+    newPoints(
+      first: unknown,
+      second: unknown,
+      opts?: { xloc?: string; extend?: string; color?: string; style?: string; width?: number }
     ): LineObject {
-      const line: LineObject = {
-        id: nextId++,
-        x1,
-        y1,
-        x2,
-        y2,
-        xloc: opts?.xloc ?? 'bar_index',
-        extend: opts?.extend ?? 'none',
-        color: opts?.color ?? '#2962FF',
-        style: opts?.style ?? 'solid',
-        width: opts?.width ?? 1,
-        _deleted: false,
-      };
-      lines.push(line);
-      return line;
+      const xloc = opts?.xloc ?? 'bar_time';
+      const a = pointAnchor(first, xloc);
+      const b = pointAnchor(second, xloc);
+      if (!a || !b) return createLine(NaN, NaN, NaN, NaN, opts);
+      return createLine(a.x, a.y, b.x, b.y, opts);
     },
 
     delete(line: LineObject | null | undefined): void {
@@ -100,14 +124,16 @@ export function createLineModule() {
     },
 
     set_first_point(line: LineObject, point: unknown): void {
-      const value = pointXY(point);
+      if (!line || typeof line !== 'object') return;
+      const value = pointAnchor(point, line.xloc) ?? pointXY(point);
       if (!value) return;
       line.x1 = value.x;
       line.y1 = value.y;
     },
 
     set_second_point(line: LineObject, point: unknown): void {
-      const value = pointXY(point);
+      if (!line || typeof line !== 'object') return;
+      const value = pointAnchor(point, line.xloc) ?? pointXY(point);
       if (!value) return;
       line.x2 = value.x;
       line.y2 = value.y;

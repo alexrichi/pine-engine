@@ -362,14 +362,14 @@ describe('User-defined function generation', () => {
     // Single-line arrow body
     const src = `//@version=6\nindicator("Test")\nmyFn(x) => x * 2\n`;
     const code = compileOk(src);
-    expect(code).toContain('function __fn_myFn(x)');
+    expect(code).toContain('function __fn_myFn(__site, x)');
   });
 
   it('function can be called after declaration', () => {
     const src = `//@version=6\nindicator("Test")\ndouble(x) => x * 2\nresult = double(close)\n`;
     const code = compileOk(src);
-    expect(code).toContain('function __fn_double(x)');
-    expect(code).toContain('__fn_double(__rt.close)');
+    expect(code).toContain('function __fn_double(__site, x)');
+    expect(code).toContain('__fn_double(');
   });
 
   it('function returns expression from arrow body', () => {

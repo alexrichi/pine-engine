@@ -1961,6 +1961,7 @@ export function createTaModule(
     roc: [0], vwap: [0], bbw: [0], kcw: [0], cog: [0], cross: [0, 1],
     max: [0], min: [0], mode: [0], range: [0], rci: [0],
     valuewhen: [1], correlation: [0, 1], stoch: [0, 1, 2],
+    tsi: [0], obv: [0, 1],
     pivothigh: 'pivot', pivotlow: 'pivot',
   };
 

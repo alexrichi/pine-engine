@@ -31,47 +31,70 @@ function pointXY(point: unknown): { x: number; y: number } | null {
   return null;
 }
 
+/** A `chart.point` anchor: x comes from `time` or `index` depending on `xloc`. */
+function pointAnchor(point: unknown, xloc: string): { x: number; y: number } | null {
+  if (!point || typeof point !== 'object') return null;
+  const value = point as { time?: unknown; index?: unknown; price?: unknown };
+  const x = Number(xloc === 'bar_time' ? value.time : value.index ?? value.time);
+  const y = Number(value.price);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
 export function createLabelModule() {
   let nextId = 0;
   const labels: LabelObject[] = [];
 
+  const createLabel = (
+    x: number,
+    y: number,
+    text: string,
+    opts?: {
+      xloc?: string;
+      yloc?: string;
+      color?: string;
+      textcolor?: string;
+      style?: string;
+      size?: string;
+      textalign?: string;
+      tooltip?: string;
+      text_font_family?: string;
+      text_formatting?: string;
+    }
+  ): LabelObject => {
+    const label: LabelObject = {
+      id: nextId++,
+      x,
+      y,
+      text,
+      xloc: opts?.xloc ?? 'bar_index',
+      yloc: opts?.yloc ?? 'price',
+      color: opts?.color ?? '#2962FF',
+      textcolor: opts?.textcolor ?? '#FFFFFF',
+      style: opts?.style ?? 'label_down',
+      size: opts?.size ?? 'normal',
+      textalign: opts?.textalign ?? 'center',
+      tooltip: opts?.tooltip ?? '',
+      text_font_family: opts?.text_font_family ?? 'default',
+      text_formatting: opts?.text_formatting ?? '',
+      _deleted: false,
+    };
+    labels.push(label);
+    return label;
+  };
+
   return {
-    new(
-      x: number,
-      y: number,
+    new: createLabel,
+
+    /** `label.new(point, text, ...)` with a `chart.point` anchor. */
+    newPoint(
+      point: unknown,
       text: string,
-      opts?: {
-        xloc?: string;
-        yloc?: string;
-        color?: string;
-        textcolor?: string;
-        style?: string;
-        size?: string;
-        textalign?: string;
-        tooltip?: string;
-        text_font_family?: string;
-        text_formatting?: string;
-      }
+      opts?: Parameters<typeof createLabel>[3]
     ): LabelObject {
-      const label: LabelObject = {
-        id: nextId++,
-        x,
-        y,
-        text,
-        xloc: opts?.xloc ?? 'bar_index',
-        yloc: opts?.yloc ?? 'price',
-        color: opts?.color ?? '#2962FF',
-        textcolor: opts?.textcolor ?? '#FFFFFF',
-        style: opts?.style ?? 'label_down',
-        size: opts?.size ?? 'normal',
-        textalign: opts?.textalign ?? 'center',
-        tooltip: opts?.tooltip ?? '',
-        text_font_family: opts?.text_font_family ?? 'default',
-        text_formatting: opts?.text_formatting ?? '',
-        _deleted: false,
-      };
-      labels.push(label);
-      return label;
+      const xloc = opts?.xloc ?? 'bar_time';
+      const a = pointAnchor(point, xloc);
+      if (!a) return createLabel(NaN, NaN, text, opts);
+      return createLabel(a.x, a.y, text, opts);
     },
 
     delete(label: LabelObject | null | undefined): void {
@@ -93,7 +116,8 @@ export function createLabelModule() {
     },
 
     set_point(label: LabelObject, point: unknown): void {
-      const value = pointXY(point);
+      if (!label || typeof label !== 'object') return;
+      const value = pointAnchor(point, label.xloc) ?? pointXY(point);
       if (!value) return;
       label.x = value.x;
       label.y = value.y;

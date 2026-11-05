@@ -196,6 +196,10 @@ export class CodeGenerator {
   private builtinMethods: Map<string, string> = new Map();
 /** Receiver alias while generating a free function for a builtin-type method. */
 private thisAlias: string | null = null;
+/** Hidden call-site parameter while generating a user function body. */
+private fnSiteParam: string | null = null;
+/** `var` names declared inside the function currently being generated. */
+private fnLocalVars = new Set<string>();
 
   // Metadata extracted from indicator()/strategy() calls
   private metadata: ScriptMetadata = {
@@ -411,14 +415,13 @@ private thisAlias: string | null = null;
           }
         }
       }
-      // Recurse into all properties
+      // Recurse into every nested value; call arguments are wrappers without a
+      // `kind`, so skipping them would miss `nz(myVar[1])`.
       for (const key of Object.keys(node)) {
         const val = node[key];
         if (Array.isArray(val)) {
-          for (const item of val) {
-            if (item && typeof item === 'object' && item.kind) visit(item);
-          }
-        } else if (val && typeof val === 'object' && val.kind) {
+          for (const item of val) visit(item);
+        } else if (val && typeof val === 'object') {
           visit(val);
         }
       }
@@ -436,6 +439,7 @@ private thisAlias: string | null = null;
     if (calleeName === 'table.new') return 'table';
     if (calleeName === 'map.new') return 'map';
     if (calleeName === 'matrix.new') return 'matrix';
+    if (calleeName.startsWith('chart.point.')) return 'chart.point';
     // UDT constructor: TypeName.new(...)
     if (calleeName.endsWith('.new')) {
       const typeName = calleeName.slice(0, -4);
@@ -449,7 +453,7 @@ private thisAlias: string | null = null;
     const typeMap: Record<string, string> = {
       'array': 'array', 'line': 'line', 'label': 'label',
       'box': 'box', 'table': 'table', 'map': 'map', 'matrix': 'matrix',
-      'linefill': 'linefill', 'polyline': 'polyline',
+      'linefill': 'linefill', 'polyline': 'polyline', 'chart.point': 'chart.point',
     };
     return typeMap[baseType] ?? null;
   }
@@ -567,6 +571,21 @@ private thisAlias: string | null = null;
     }
   }
 
+  /** State slot for a `var` name; function-local vars are keyed by call site. */
+  private stateRef(name: string): string {
+    if (this.fnSiteParam && this.fnLocalVars.has(name)) {
+      return `__rt.state[${JSON.stringify(name + ':')} + ${this.fnSiteParam}]`;
+    }
+    return `__rt.state.${name}`;
+  }
+
+  private persistentRef(name: string): string {
+    if (this.fnSiteParam && this.fnLocalVars.has(name)) {
+      return `__rt.persistentState[${JSON.stringify(name + ':')} + ${this.fnSiteParam}]`;
+    }
+    return `__rt.persistentState.${name}`;
+  }
+
   private genVarDecl(decl: VariableDeclaration, out: string[], isTopLevel = false): void {
     if (decl.isTupleDestructure && decl.tupleNames) {
       // [a, b, c] = ta.macd(...)
@@ -604,32 +623,39 @@ private thisAlias: string | null = null;
       // var declarations keep their first assignment. The guard runs on the
       // first bar, so `var x = close` sees the first close, not an empty series.
       this.varDecls.set(name, 'var');
+      if (this.fnSiteParam) this.fnLocalVars.add(name);
       const valStr = this.genExpr(decl.value);
-      out.push(
-        this.indent() +
-          `if (!(${JSON.stringify(name)} in __rt.state)) __rt.state.${name} = __rt.scalar(${valStr});`,
-      );
+      const store = this.stateRef(name);
+      if (this.fnSiteParam) {
+        const key = `${JSON.stringify(name + ':')} + ${this.fnSiteParam}`;
+        out.push(this.indent() + `if (!((${key}) in __rt.state)) __rt.state[${key}] = __rt.scalar(${valStr});`);
+      } else {
+        out.push(this.indent() + `if (!(${JSON.stringify(name)} in __rt.state)) ${store} = __rt.scalar(${valStr});`);
+      }
       // Emit userSeriesSet for history-tracked var/varip
       if (this.historyVars.has(name)) {
-        const store = `__rt.state.${name}`;
         out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${store});`);
       }
     } else if (decl.modifier === 'varip') {
       // varip declarations: first assignment in persistentState
       this.varDecls.set(name, 'varip');
+      if (this.fnSiteParam) this.fnLocalVars.add(name);
       const valStr = this.genExpr(decl.value);
-      out.push(
-        this.indent() +
-          `if (!(${JSON.stringify(name)} in __rt.persistentState)) __rt.persistentState.${name} = __rt.scalar(${valStr});`,
-      );
+      const store = this.persistentRef(name);
+      if (this.fnSiteParam) {
+        const key = `${JSON.stringify(name + ':')} + ${this.fnSiteParam}`;
+        out.push(this.indent() + `if (!((${key}) in __rt.persistentState)) __rt.persistentState[${key}] = __rt.scalar(${valStr});`);
+      } else {
+        out.push(this.indent() + `if (!(${JSON.stringify(name)} in __rt.persistentState)) ${store} = __rt.scalar(${valStr});`);
+      }
       if (this.historyVars.has(name)) {
-        const store = `__rt.persistentState.${name}`;
         out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${store});`);
       }
     } else {
-      // Plain declaration
+      // Plain declaration. Pine variables hold the current bar's value, not the
+      // Series object, so unwrap before storing.
       const valStr = this.genExpr(decl.value);
-      out.push(this.indent() + `var ${safeIdent(name)} = ${valStr};`);
+      out.push(this.indent() + `var ${safeIdent(name)} = __rt.scalar(${valStr});`);
       // Emit userSeriesSet for history-tracked variables
       if (this.historyVars.has(name)) {
         out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${safeIdent(name)});`);
@@ -638,10 +664,16 @@ private thisAlias: string | null = null;
   }
 
   private genFunctionDecl(decl: FunctionDeclaration, out: string[]): void {
-    const params = decl.params.map(p => safeIdent(p.name)).join(', ');
+    // Pine inlines functions per call site, so `var` inside a function keeps a
+    // separate value per caller. The hidden site id keys that state.
+    const params = ['__site', ...decl.params.map(p => safeIdent(p.name))].join(', ');
     out.push(this.indent() + `function ${fnName(decl.name)}(${params}) {`);
     this.indentLevel++;
     const savedTypes = this.pushParamTypes(decl.params);
+    const savedSite = this.fnSiteParam;
+    const savedLocals = this.fnLocalVars;
+    this.fnSiteParam = '__site';
+    this.fnLocalVars = new Set(savedLocals);
     if (Array.isArray(decl.body)) {
       // A block-bodied Pine function returns the value of its last statement,
       // including the last expression inside an if/else branch.
@@ -650,6 +682,8 @@ private thisAlias: string | null = null;
       // Expression body
       out.push(this.indent() + `return ${this.genExpr(decl.body)};`);
     }
+    this.fnSiteParam = savedSite;
+    this.fnLocalVars = savedLocals;
     this.restoreParamTypes(savedTypes);
     this.indentLevel--;
     out.push(this.indent() + '}');
@@ -806,16 +840,22 @@ private thisAlias: string | null = null;
       // `this` is not a legal JS parameter name, so the receiver is bound to a
       // local alias that genIdentifier emits for `this` inside the body.
       const selfName = decl.selfName === 'this' ? '__pine_self' : safeIdent(decl.selfName);
-      const allParams = [selfName, ...decl.params.map(p => safeIdent(p.name))].join(', ');
+      const allParams = ['__site', selfName, ...decl.params.map(p => safeIdent(p.name))].join(', ');
       out.push(this.indent() + `function ${fnName(decl.name)}(${allParams}) {`);
       this.indentLevel++;
       this.thisAlias = selfName;
+      const savedSite = this.fnSiteParam;
+      const savedLocals = this.fnLocalVars;
+      this.fnSiteParam = '__site';
+      this.fnLocalVars = new Set(savedLocals);
       out.push(this.indent() + `var self = ${selfName};`);
       if (Array.isArray(decl.body)) {
         this.genTailBlock(decl.body, out);
       } else {
         out.push(this.indent() + `return ${this.genExpr(decl.body)};`);
       }
+      this.fnSiteParam = savedSite;
+      this.fnLocalVars = savedLocals;
       this.thisAlias = null;
       this.indentLevel--;
       out.push(this.indent() + '}');
@@ -874,7 +914,7 @@ private thisAlias: string | null = null;
 
     if (targetName && this.varDecls.has(targetName)) {
       const storeType = this.varDecls.get(targetName);
-      const store = storeType === 'varip' ? `__rt.persistentState.${targetName}` : `__rt.state.${targetName}`;
+      const store = storeType === 'varip' ? this.persistentRef(targetName) : this.stateRef(targetName);
       if (op === ':=' || op === '=') {
         out.push(this.indent() + `${store} = __rt.scalar(${rhs});`);
       } else {
@@ -896,7 +936,7 @@ private thisAlias: string | null = null;
       // sometimes shadow a function with a variable).
       const declares = op === '=' && (target.kind === 'IdentifierExpression' || target.kind === 'TupleExpression');
       if (declares) {
-        out.push(this.indent() + `var ${lhsStr} = ${rhs};`);
+        out.push(this.indent() + `var ${lhsStr} = __rt.scalar(${rhs});`);
       } else if (op === ':=') {
         out.push(this.indent() + `${lhsStr} = ${rhs};`);
       } else {
@@ -1100,7 +1140,7 @@ private thisAlias: string | null = null;
     // var/varip references
     if (this.varDecls.has(name)) {
       const storeType = this.varDecls.get(name);
-      return storeType === 'varip' ? `__rt.persistentState.${name}` : `__rt.state.${name}`;
+      return storeType === 'varip' ? this.persistentRef(name) : this.stateRef(name);
     }
 
     // barstate properties accessed as top-level identifier
@@ -1110,7 +1150,7 @@ private thisAlias: string | null = null;
     if (name === 'this') return this.thisAlias ?? 'this';
 
     // Time functions used as variables (e.g. hour, minute - they're both functions and vars in Pine)
-    const timeFnVars = new Set(['hour', 'minute', 'second', 'dayofweek', 'dayofmonth', 'month', 'year']);
+    const timeFnVars = new Set(['hour', 'minute', 'second', 'dayofweek', 'dayofmonth', 'month', 'year', 'weekofyear']);
     if (timeFnVars.has(name)) return `__rt.${name}()`;
 
     return safeIdent(name);
@@ -1350,6 +1390,20 @@ private thisAlias: string | null = null;
         // Pine: ta.stoch(source, high, low, length) — args already explicit in Pine
         return `${mapped}(${withId(args)})`;
       }
+      if (calleeName === 'ta.highest' || calleeName === 'ta.lowest') {
+        // Pine: ta.highest(length) -> Runtime: highest(source, length) over high/low.
+        if (call.args.length === 1) {
+          const source = calleeName === 'ta.highest' ? '__rt.high' : '__rt.low';
+          return `${mapped}(${withId(`${source}, ${args}`)})`;
+        }
+      }
+      if (calleeName === 'ta.highestbars' || calleeName === 'ta.lowestbars') {
+        // Pine: ta.highestbars(length) -> Runtime: highestbars(source, length).
+        if (call.args.length === 1) {
+          const source = calleeName === 'ta.highestbars' ? '__rt.high' : '__rt.low';
+          return `${mapped}(${withId(`${source}, ${args}`)})`;
+        }
+      }
       if (calleeName === 'ta.pivothigh' || calleeName === 'ta.pivotlow') {
         // Pine allows ta.pivothigh(left, right) over the chart's highs/lows.
         const id = `"__cs${this.callSiteIndex++}"`;
@@ -1392,7 +1446,8 @@ private thisAlias: string | null = null;
           if (this.builtinMethods.has(method)) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-            return `${fnName(method)}(${objExpr}${argsStr})`;
+            const site = JSON.stringify(`__cs${this.callSiteIndex++}`);
+            return `${fnName(method)}(${site}, ${objExpr}${argsStr})`;
           }
           if (objVarType && this.udtTypes.has(objVarType)) {
             const objExpr = this.genExpr(mem.object);
@@ -1480,7 +1535,8 @@ private thisAlias: string | null = null;
           return `__rt.map.${method}(${objExpr}${argsStr})`;
         }
         if (this.builtinMethods.has(method)) {
-          return `${fnName(method)}(${objExpr}${argsStr})`;
+          const site = JSON.stringify(`__cs${this.callSiteIndex++}`);
+          return `${fnName(method)}(${site}, ${objExpr}${argsStr})`;
         }
         if (this.udtMethods.has(method)) {
           return `__rt.udtCall(${objExpr}, ${JSON.stringify(method)}, [${argsStr.slice(2)}])`;
@@ -1505,7 +1561,10 @@ private thisAlias: string | null = null;
     if (call.callee.kind === 'IdentifierExpression') {
       const name = (call.callee as IdentifierExpression).name;
       const args = this.genArgs(call.args);
-      if (this.userFunctions.has(name)) return `${fnName(name)}(${args})`;
+      if (this.userFunctions.has(name)) {
+        const site = JSON.stringify(`__cs${this.callSiteIndex++}`);
+        return `${fnName(name)}(${site}${args ? ', ' + args : ''})`;
+      }
       return `__rt.missing(${JSON.stringify(name)})(${args})`;
     }
 
@@ -1627,6 +1686,31 @@ private thisAlias: string | null = null;
   }
 
   private genDrawingNew(call: CallExpression, kind: 'line' | 'box' | 'label'): string {
+    // Point form: `line.new(first_point, second_point, ...)`,
+    // `box.new(top_left, bottom_right, ...)`, `label.new(point, text, ...)`.
+    const pointForm = kind === 'label'
+      ? this.isPointExpr(call.args[0]?.value)
+      : this.isPointExpr(call.args[0]?.value) && this.isPointExpr(call.args[1]?.value);
+    if (pointForm) {
+      const optional =
+        kind === 'line' ? ['xloc', 'extend', 'color', 'style', 'width'] :
+        kind === 'box'
+          ? ['border_color', 'border_width', 'border_style', 'extend', 'xloc', 'bgcolor',
+             'text', 'text_size', 'text_color', 'text_halign', 'text_valign', 'text_wrap',
+             'text_font_family', 'text_formatting']
+          : ['xloc', 'yloc', 'color', 'textcolor', 'style', 'size', 'textalign', 'tooltip'];
+      if (kind === 'label') {
+        const point = this.genExpr(call.args[0]!.value);
+        const text = call.args[1] ? this.genExpr(call.args[1].value) : '""';
+        const opts = this.genDrawingOptions(call.args.slice(2), optional);
+        return `__rt.label.newPoint(${point}, ${text}, ${opts})`;
+      }
+      const first = this.genExpr(call.args[0]!.value);
+      const second = this.genExpr(call.args[1]!.value);
+      const opts = this.genDrawingOptions(call.args.slice(2), optional);
+      return `__rt.${kind}.newPoints(${first}, ${second}, ${opts})`;
+    }
+
     const required =
       kind === 'line' ? ['x1', 'y1', 'x2', 'y2'] :
       kind === 'box' ? ['left', 'top', 'right', 'bottom'] :
@@ -1662,6 +1746,37 @@ private thisAlias: string | null = null;
     const args: string[] = slots.map((slot) => slot ?? 'undefined');
     if (options.length > 0) args.push(`{${options.join(', ')}}`);
     return `__rt.${kind}.new(${args.join(', ')})`;
+  }
+
+  /** True for `chart.point.*` calls and variables typed `chart.point`. */
+  private isPointExpr(expr?: Expression): boolean {
+    if (!expr) return false;
+    if (expr.kind === 'CallExpression') {
+      const callee = this.calleeToString((expr as CallExpression).callee);
+      return callee === 'chart.point.new' || callee === 'chart.point.now' ||
+        callee === 'chart.point.from_index' || callee === 'chart.point.from_time';
+    }
+    if (expr.kind === 'IdentifierExpression') {
+      return this.varTypes.get((expr as IdentifierExpression).name) === 'chart.point';
+    }
+    return false;
+  }
+
+  /** Named/positional option object for a drawing constructor. */
+  private genDrawingOptions(args: CallArgument[], optional: string[]): string {
+    const options: string[] = [];
+    let positionalIndex = 0;
+    for (const arg of args) {
+      const value = this.genExpr(arg.value);
+      if (arg.name === null) {
+        const key = optional[positionalIndex];
+        if (key) options.push(`${JSON.stringify(key)}: ${value}`);
+        positionalIndex++;
+      } else {
+        options.push(`${JSON.stringify(arg.name)}: ${value}`);
+      }
+    }
+    return `{${options.join(', ')}}`;
   }
 
   private genInputCall(call: CallExpression): string {

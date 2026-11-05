@@ -64,6 +64,58 @@ plot(str.length(mode), "n")
     expect(input.tooltip).toBe('Tip');
   });
 
+  it('draws with chart.point anchors', () => {
+    const result = run(`//@version=6
+indicator("points", overlay = true)
+line.new(chart.point.new(time, na, high), chart.point.new(time + 3600000, na, low), xloc = xloc.bar_time)
+box.new(chart.point.new(time, na, high), chart.point.new(time + 3600000, na, low), xloc = xloc.bar_time)
+label.new(chart.point.new(time, na, close), "x", xloc = xloc.bar_time)
+`);
+    expect(result.ok).toBe(true);
+    expect(result.drawings.lines.at(-1)!.x1).toBe(1_700_025_200_000);
+    expect(result.drawings.lines.at(-1)!.y1).toBe(108);
+    expect(result.drawings.boxes.at(-1)!.top).toBe(108);
+    expect(result.drawings.labels.at(-1)!.y).toBe(107.5);
+  });
+
+  it('uses high and low for one-argument ta.highest and ta.lowest', () => {
+    const result = run(`//@version=6
+indicator("hl")
+plot(ta.highest(5), "h")
+plot(ta.lowest(5), "l")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(108);
+    expect(result.plots[1]!.values.at(-1)).toBe(102);
+  });
+
+  it('keeps function-local var state per call site', () => {
+    const result = run(`//@version=6
+indicator("sites")
+counter() =>
+    var n = 0
+    n += 1
+    n
+a = counter()
+b = counter()
+plot(a * 1000 + b, "v")
+`);
+    expect(result.ok).toBe(true);
+    const value = result.plots[0]!.values.at(-1)!;
+    expect(value % 1000).toBe(Math.floor(value / 1000));
+  });
+
+  it('stores builtin series as numbers in arrays', () => {
+    const result = run(`//@version=6
+indicator("arr")
+var array<float> vals = array.new<float>()
+vals.push(high)
+plot(vals.get(0), "v")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
+  });
+
   it('treats a UDT method call on na as na', () => {
     const result = run(`//@version=6
 indicator("na method")

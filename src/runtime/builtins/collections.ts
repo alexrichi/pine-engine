@@ -1,6 +1,12 @@
 // Pine Script v6 array built-in functions
 
 import { NA } from '../types/na';
+import { Series } from '../types/series';
+
+/** Pine stores the current bar value, never the Series object, in a container. */
+function scalarValue<T>(value: T): T {
+  return value instanceof Series ? (value.get(0) as unknown as T) : value;
+}
 
 export const arrayModule = {
   /** Create a new float (number) array. */
@@ -36,7 +42,7 @@ export const arrayModule = {
   /** Push a value onto the end of the array. */
   push(arr: any[], val: any): void {
     if (!Array.isArray(arr)) return;
-    arr.push(val);
+    arr.push(scalarValue(val));
   },
 
   /** Remove and return the last element. */
@@ -55,7 +61,7 @@ export const arrayModule = {
   set(arr: any[], index: number, val: any): void {
     if (!Array.isArray(arr)) return;
     if (index >= 0 && index < arr.length) {
-      arr[index] = val;
+      arr[index] = scalarValue(val);
     }
   },
 
@@ -107,7 +113,7 @@ export const arrayModule = {
   /** Insert a value at the given index, shifting elements right. */
   insert(arr: any[], index: number, val: any): void {
     if (!Array.isArray(arr)) return;
-    arr.splice(index, 0, val);
+    arr.splice(index, 0, scalarValue(val));
   },
 
   /** Remove and return the element at the given index. */
@@ -186,7 +192,7 @@ export const arrayModule = {
   /** Add element(s) to the beginning. */
   unshift(arr: any[], val: any): void {
     if (!Array.isArray(arr)) return;
-    arr.unshift(val);
+    arr.unshift(scalarValue(val));
   },
 
   /** Return the median of a numeric array. */

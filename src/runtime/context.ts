@@ -71,7 +71,7 @@ export interface RuntimeContext {
     border_color: string;
     text_color: string;
     point: {
-      new: (time: number, price: number) => unknown;
+      new: (time: number, index: number, price: number) => unknown;
       now: (price?: number) => unknown;
       from_index: (index: number, price: number) => unknown;
       from_time: (time: number, price: number) => unknown;
@@ -418,12 +418,12 @@ export function createContext(
       border_color: '#2a2e39',
       text_color: '#d1d4dc',
       point: {
-        new(time: number, price: number) {
-          return { time, price };
+        new(time: number, index: number, price: number) {
+          return { time, index, price };
         },
         now(price?: number) {
           const value = price === undefined ? builtins.close.get(0) : price;
-          return { index: currentBarIndex, price: value };
+          return { time: builtins.time.get(0), index: currentBarIndex, price: value };
         },
         from_index(index: number, price: number) {
           return { index, price };
