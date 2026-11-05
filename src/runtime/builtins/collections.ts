@@ -1,5 +1,7 @@
 // Pine Script v6 array built-in functions
 
+import { NA } from '../types/na';
+
 export const arrayModule = {
   /** Create a new float (number) array. */
   newFloat(size?: number, val?: number): number[] {
@@ -44,7 +46,7 @@ export const arrayModule = {
 
   /** Get the element at the given index. */
   get(arr: any[], index: number): any {
-    if (index < 0 || index >= arr.length) return undefined;
+    if (index < 0 || index >= arr.length) return NA;
     return arr[index];
   },
 
@@ -219,12 +221,12 @@ export const arrayModule = {
 
   /** Return the first element. */
   first(arr: any[]): any {
-    return arr.length > 0 ? arr[0] : undefined;
+    return arr.length > 0 ? arr[0] : NA;
   },
 
   /** Return the last element. */
   last(arr: any[]): any {
-    return arr.length > 0 ? arr[arr.length - 1] : undefined;
+    return arr.length > 0 ? arr[arr.length - 1] : NA;
   },
 
   /** Concatenate two arrays into a new one. */
@@ -418,7 +420,8 @@ export const mapModule = {
 
   /** Get the value associated with the key, or undefined. */
   get<K, V>(m: Map<K, V>, key: K): V | undefined {
-    return m.get(key);
+    const value = m.get(key);
+    return value === undefined ? (NA as unknown as V) : value;
   },
 
   /** Check if the map contains the given key. */
@@ -660,7 +663,7 @@ export const matrixModule = {
 
   /** Get the value at (row, col). */
   get<T>(m: PineMatrix<T>, row: number, col: number): T | undefined {
-    if (row < 0 || row >= m.rows || col < 0 || col >= m.cols) return undefined;
+    if (row < 0 || row >= m.rows || col < 0 || col >= m.cols) return NA as unknown as T;
     return m.data[row][col];
   },
 

@@ -6,6 +6,16 @@ import { NA } from '../types/na';
 // Internal alias so it doesn't conflict with the `NA` symbol type
 const NA_SYMBOL = NA;
 
+/** Minutes east of UTC for "GMT-5", "UTC+0", "UTC0"; null for IANA names. */
+function fixedOffsetMinutes(tz: string): number | null {
+  const match = /^(?:GMT|UTC)([+-]?)(\d{1,2})(?::?(\d{2}))?$/i.exec(tz.trim());
+  if (!match) return null;
+  const sign = match[1] === '-' ? -1 : 1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3] ?? 0);
+  return sign * (hours * 60 + minutes);
+}
+
 /**
  * Extract date/time parts from a timestamp, optionally in a specific timezone.
  * When no timezone is given, UTC is used.
@@ -25,6 +35,23 @@ function getDateParts(
   if (!Number.isFinite(ts)) {
     return { year: NaN, month: NaN, day: NaN, hour: NaN, minute: NaN, second: NaN, dayOfWeek: NaN };
   }
+
+  // Pine accepts fixed offsets such as "GMT-5", "UTC+0" and "UTC0", which
+  // Intl.DateTimeFormat rejects. Shift the timestamp and read it as UTC.
+  const offset = tz ? fixedOffsetMinutes(tz) : null;
+  if (offset !== null) {
+    const shifted = new Date(ts + offset * 60_000);
+    return {
+      year: shifted.getUTCFullYear(),
+      month: shifted.getUTCMonth() + 1,
+      day: shifted.getUTCDate(),
+      hour: shifted.getUTCHours(),
+      minute: shifted.getUTCMinutes(),
+      second: shifted.getUTCSeconds(),
+      dayOfWeek: shifted.getUTCDay() + 1,
+    };
+  }
+
   const d = new Date(ts);
 
   if (!tz) {

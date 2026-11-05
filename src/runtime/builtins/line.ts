@@ -68,27 +68,33 @@ export function createLineModule() {
     },
 
     set_x1(line: LineObject, val: number): void {
+      if (!line || typeof line !== 'object') return;
       line.x1 = val;
     },
 
     set_y1(line: LineObject, val: number): void {
+      if (!line || typeof line !== 'object') return;
       line.y1 = val;
     },
 
     set_x2(line: LineObject, val: number): void {
+      if (!line || typeof line !== 'object') return;
       line.x2 = val;
     },
 
     set_y2(line: LineObject, val: number): void {
+      if (!line || typeof line !== 'object') return;
       line.y2 = val;
     },
 
     set_xy1(line: LineObject, x: number, y: number): void {
+      if (!line || typeof line !== 'object') return;
       line.x1 = x;
       line.y1 = y;
     },
 
     set_xy2(line: LineObject, x: number, y: number): void {
+      if (!line || typeof line !== 'object') return;
       line.x2 = x;
       line.y2 = y;
     },
@@ -116,14 +122,17 @@ export function createLineModule() {
     },
 
     set_color(line: LineObject, val: string): void {
+      if (!line || typeof line !== 'object') return;
       line.color = val;
     },
 
     set_style(line: LineObject, val: string): void {
+      if (!line || typeof line !== 'object') return;
       line.style = val;
     },
 
     set_width(line: LineObject, val: number): void {
+      if (!line || typeof line !== 'object') return;
       line.width = val;
     },
 

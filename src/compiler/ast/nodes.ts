@@ -178,7 +178,15 @@ export type Expression =
   | GroupExpression
   | TupleExpression
   | IfExpression
-  | SwitchExpression;
+  | SwitchExpression
+  | BlockExpression;
+
+/** A multi-statement branch that evaluates to its last expression. */
+export interface BlockExpression extends BaseNode {
+  kind: 'BlockExpression';
+  statements: Statement[];
+  value: Expression;
+}
 
 export interface BinaryExpression extends BaseNode {
   kind: 'BinaryExpression';

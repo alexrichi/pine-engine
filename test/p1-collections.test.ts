@@ -64,16 +64,16 @@ describe('arrayModule — P1 array methods', () => {
     expect(arrayModule.first([10, 20, 30])).toBe(10);
   });
 
-  it('first: returns undefined for empty array', () => {
-    expect(arrayModule.first([])).toBeUndefined();
+  it('first: returns na for empty array', () => {
+    expect(Number.isNaN(arrayModule.first([]))).toBe(true);
   });
 
   it('last: returns last element', () => {
     expect(arrayModule.last([10, 20, 30])).toBe(30);
   });
 
-  it('last: returns undefined for empty array', () => {
-    expect(arrayModule.last([])).toBeUndefined();
+  it('last: returns na for empty array', () => {
+    expect(Number.isNaN(arrayModule.last([]))).toBe(true);
   });
 
   // array.new_color / new_line / new_label / new_box / new_table
@@ -242,9 +242,9 @@ describe('mapModule', () => {
     expect(prev).toBeUndefined();
   });
 
-  it('get: returns undefined for missing key', () => {
+  it('get: returns na for missing key', () => {
     const m = mapModule.new<string, number>();
-    expect(mapModule.get(m, 'missing')).toBeUndefined();
+    expect(Number.isNaN(mapModule.get(m, 'missing'))).toBe(true);
   });
 
   it('contains: returns true for existing key', () => {
@@ -345,11 +345,11 @@ describe('matrixModule', () => {
     expect(matrixModule.get(m, 0, 0)).toBe(0);
   });
 
-  it('get: returns undefined for out-of-bounds access', () => {
+  it('get: returns na for out-of-bounds access', () => {
     const m = matrixModule.new(2, 2, 0);
-    expect(matrixModule.get(m, 5, 0)).toBeUndefined();
-    expect(matrixModule.get(m, 0, 5)).toBeUndefined();
-    expect(matrixModule.get(m, -1, 0)).toBeUndefined();
+    expect(Number.isNaN(matrixModule.get(m, 5, 0))).toBe(true);
+    expect(Number.isNaN(matrixModule.get(m, 0, 5))).toBe(true);
+    expect(Number.isNaN(matrixModule.get(m, -1, 0))).toBe(true);
   });
 
   it('set: out-of-bounds set does not throw', () => {

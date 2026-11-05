@@ -72,6 +72,7 @@ export interface RuntimeContext {
     text_color: string;
     point: {
       new: (time: number, price: number) => unknown;
+      now: (price?: number) => unknown;
       from_index: (index: number, price: number) => unknown;
       from_time: (time: number, price: number) => unknown;
       copy: (point: unknown) => unknown;
@@ -88,6 +89,7 @@ export interface RuntimeContext {
 
   // Time functions (top-level)
   time_close: number;
+  time_tradingday: number;
   timenow: number;
   hour(ts?: number, tz?: string): number;
   minute(ts?: number, tz?: string): number;
@@ -158,7 +160,11 @@ export interface RuntimeContext {
   toInt(value: unknown): number;
   toFloat(value: unknown): number;
   toBool(value: unknown): number | boolean;
-  toStr(value: unknown): string;
+    toStr(value: unknown): string;
+  /** Cast a drawing-type value: keep the handle, null for `na`. */
+  drawingHandle(value: unknown): unknown;
+  /** Receiver for a drawing method call; `na` receivers become a no-op proxy. */
+  drawingCall(value: unknown): unknown;
   /** Normalize a tuple result so destructuring never throws on `na`. */
   tuple(value: unknown, count: number): unknown[];
   missing(name: string): unknown;
@@ -362,6 +368,10 @@ export function createContext(
     get volume() { return builtins.volume as any; },
     get time() { return builtins.time.get(0); },
     get time_close() { return builtins.time.get(0) + barMs; },
+    get time_tradingday() {
+      const value = builtins.time.get(0);
+      return Number.isFinite(value) ? Math.floor(value / 86_400_000) * 86_400_000 : NA;
+    },
     timenow: executionTimenow,
     get bar_index() { return currentBarIndex; },
     get last_bar_index() { return lastIndex; },
@@ -395,6 +405,10 @@ export function createContext(
       point: {
         new(time: number, price: number) {
           return { time, price };
+        },
+        now(price?: number) {
+          const value = price === undefined ? builtins.close.get(0) : price;
+          return { index: currentBarIndex, price: value };
         },
         from_index(index: number, price: number) {
           return { index, price };
@@ -765,6 +779,18 @@ export function createContext(
     toStr(value: unknown): string {
       const scalar = value instanceof Series ? value.get(0) : value;
       return isNa(scalar) ? 'NaN' : String(scalar);
+    },
+
+    drawingHandle(value: unknown): unknown {
+      const scalar = value instanceof Series ? value.get(0) : value;
+      return scalar !== null && typeof scalar === 'object' ? scalar : null;
+    },
+
+    drawingCall(value: unknown): unknown {
+      const scalar = value instanceof Series ? value.get(0) : value;
+      if (scalar !== null && typeof scalar === 'object') return scalar;
+      // Pine setters on an `na` handle are no-ops and getters return `na`.
+      return new Proxy({}, { get: () => undefined, set: () => true });
     },
 
     tuple(value: unknown, count: number): unknown[] {

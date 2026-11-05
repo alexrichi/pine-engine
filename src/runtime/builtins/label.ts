@@ -116,6 +116,7 @@ export function createLabelModule() {
     },
 
     set_text(label: LabelObject, val: string): void {
+      if (!label || typeof label !== 'object') return;
       label.text = val;
     },
 

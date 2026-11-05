@@ -13,6 +13,7 @@ import {
   CallExpression, CallArgument, MemberExpression, IndexExpression,
   IdentifierExpression, LiteralExpression, ArrayLiteralExpression,
   GroupExpression, IfExpression, SwitchExpression, SwitchExprCase,
+BlockExpression,
 } from '../ast/nodes';
 import { Precedence, getInfixInfo } from './precedence';
 
@@ -485,8 +486,7 @@ export class Parser {
         this.consumeNewline();
         body = this.parseBlock();
       } else {
-        body = this.parseExpression();
-        this.consumeNewline();
+        body = this.parseInlineBody();
       }
     } else {
       this.consumeNewline();
@@ -513,7 +513,9 @@ export class Parser {
             this.check(TokenType.FLOAT_TYPE) ||
             this.check(TokenType.INT) ||
             this.check(TokenType.BOOL_TYPE) ||
-            this.check(TokenType.STRING_TYPE);
+            this.check(TokenType.STRING_TYPE) ||
+            this.check(TokenType.TYPE) ||
+            this.check(TokenType.METHOD);
           if (isParamName) {
             typeAnnotation = ann;
           } else {
@@ -530,7 +532,8 @@ export class Parser {
       const nameTok = (cur.type === TokenType.IDENTIFIER || cur.type === TokenType.BY ||
         cur.type === TokenType.COLOR_TYPE || cur.type === TokenType.FLOAT_TYPE ||
         cur.type === TokenType.INT || cur.type === TokenType.BOOL_TYPE ||
-        cur.type === TokenType.STRING_TYPE)
+        cur.type === TokenType.STRING_TYPE || cur.type === TokenType.TYPE ||
+        cur.type === TokenType.METHOD)
         ? this.advance()
         : this.expect(TokenType.IDENTIFIER, 'Expected parameter name');
 
@@ -552,6 +555,26 @@ export class Parser {
 
   // ── Method Declaration ───────────────────────────────────────────────────
 
+  /** Inline body after `=>`: an expression, or a typed declaration whose value is returned. */
+  private parseInlineBody(): Statement[] | Expression {
+    if (this.isTypeAnnotationStart() || this.check(TokenType.VAR) || this.check(TokenType.VARIP)) {
+      const stmt = this.parseStatementSafe();
+      this.consumeNewline();
+      if (stmt && stmt.kind === 'VariableDeclaration') {
+        const decl = stmt as VariableDeclaration;
+        return {
+          kind: 'BlockExpression',
+          statements: [decl],
+          value: { kind: 'IdentifierExpression', name: decl.name, loc: decl.loc } as IdentifierExpression,
+          loc: decl.loc,
+        } as BlockExpression;
+      }
+      return stmt ? [stmt] : [];
+    }
+    const expr = this.parseExpression();
+    this.consumeNewline();
+    return expr;
+  }
   private parseMethodDecl(): MethodDeclaration {
     const loc = this.peek().loc;
     this.advance(); // consume 'method'
@@ -578,8 +601,7 @@ export class Parser {
         this.consumeNewline();
         body = this.parseBlock();
       } else {
-        body = this.parseExpression();
-        this.consumeNewline();
+        body = this.parseInlineBody();
       }
     } else {
       this.consumeNewline();
@@ -616,8 +638,17 @@ export class Parser {
         this.skipNewlines();
         continue;
       }
+      // UDT fields may carry var/varip; the storage class has no effect on the
+      // instance shape.
+      if (this.check(TokenType.VAR) || this.check(TokenType.VARIP)) {
+        this.advance();
+      }
       const typeAnn = this.parseTypeAnnotation();
-      const fieldName = this.expect(TokenType.IDENTIFIER, 'Expected field name');
+      const fieldName = (this.check(TokenType.TYPE) || this.check(TokenType.COLOR_TYPE) ||
+        this.check(TokenType.INT) || this.check(TokenType.FLOAT_TYPE) ||
+        this.check(TokenType.BOOL_TYPE) || this.check(TokenType.STRING_TYPE))
+        ? this.advance()
+        : this.expect(TokenType.IDENTIFIER, 'Expected field name');
       let defaultValue: Expression | null = null;
       if (this.check(TokenType.ASSIGN)) {
         this.advance();
@@ -651,6 +682,10 @@ export class Parser {
       }
       const memberTok = this.expect(TokenType.IDENTIFIER, 'Expected enum member');
       members.push(memberTok.value);
+      if (this.check(TokenType.ASSIGN)) {
+        this.advance();
+        this.parseExpression();
+      }
       this.consumeNewline();
     }
 
@@ -846,9 +881,17 @@ export class Parser {
       this.consumeNewline();
       return this.parseBlock();
     }
-    const stmt = this.parseStatementSafe();
+    const stmts: Statement[] = [];
+    const first = this.parseStatementSafe();
+    if (first) stmts.push(first);
+    // Pine allows a comma-separated statement list in an inline case body.
+    while (this.check(TokenType.COMMA)) {
+      this.advance();
+      const next = this.parseStatementSafe();
+      if (next) stmts.push(next);
+    }
     this.consumeNewline();
-    return stmt ? [stmt] : [];
+    return stmts;
   }
 
   // ── Return ───────────────────────────────────────────────────────────────
@@ -1059,7 +1102,8 @@ export class Parser {
           this.check(TokenType.BOOL_TYPE) ||
           this.check(TokenType.STRING_TYPE) ||
           this.check(TokenType.COLOR_TYPE) ||
-          this.check(TokenType.ENUM);
+          this.check(TokenType.ENUM) ||
+          this.check(TokenType.TYPE);
         if (!isProperty) {
           this.reporter.error(
             `Expected property name, got '${this.peek().value}' (${this.peek().type})`,
@@ -1106,7 +1150,8 @@ export class Parser {
         this.check(TokenType.SERIES) ||
         this.check(TokenType.SIMPLE) ||
         this.check(TokenType.CONST) ||
-        this.check(TokenType.INPUT)
+        this.check(TokenType.INPUT) ||
+        this.check(TokenType.TYPE)
       ) && this.peekAt(1).type === TokenType.ASSIGN;
       if (isNamedArgStart) {
         name = this.advance().value;
@@ -1175,6 +1220,7 @@ export class Parser {
       // Contextual keywords that can be used as variable names
       case TokenType.BY:
       case TokenType.METHOD:
+      case TokenType.TYPE:
         this.advance();
         return { kind: 'IdentifierExpression', name: cur.value, loc: cur.loc } as IdentifierExpression;
 
@@ -1221,11 +1267,8 @@ export class Parser {
     const condition = this.parseExpression();
     this.consumeNewline();
     this.expect(TokenType.INDENT, 'Expected indent in if expression');
+    const thenBranch = this.parseExprBlock();
     this.skipNewlines();
-    const thenBranch = this.parseExpression();
-    this.consumeNewline();
-    this.skipNewlines();
-    this.expect(TokenType.DEDENT, 'Expected dedent after then branch');
 
     let elseBranch: Expression | null = null;
     if (this.check(TokenType.ELSE)) {
@@ -1236,11 +1279,8 @@ export class Parser {
       } else {
         this.consumeNewline();
         this.expect(TokenType.INDENT, 'Expected indent in else branch');
+        elseBranch = this.parseExprBlock();
         this.skipNewlines();
-        elseBranch = this.parseExpression();
-        this.consumeNewline();
-        this.skipNewlines();
-        this.expect(TokenType.DEDENT, 'Expected dedent after else branch');
       }
     }
 
@@ -1291,16 +1331,46 @@ export class Parser {
     if (this.check(TokenType.NEWLINE) || this.check(TokenType.INDENT)) {
       this.consumeNewline();
       this.expect(TokenType.INDENT, 'Expected indent in switch case');
+      const body = this.parseExprBlock();
       this.skipNewlines();
-      const body = this.parseExpression();
-      this.consumeNewline();
-      this.skipNewlines();
-      this.expect(TokenType.DEDENT, 'Expected dedent');
       return body;
     }
     const body = this.parseExpression();
     this.consumeNewline();
     return body;
+  }
+
+  /**
+   * Parse an indented branch that may hold local declarations before its
+   * trailing value, e.g. an `if` expression with temporary variables.
+   * Consumes the closing DEDENT.
+   */
+  private parseExprBlock(): Expression {
+    this.skipNewlines();
+    const loc = this.peek().loc;
+    const statements: Statement[] = [];
+    while (!this.check(TokenType.DEDENT) && !this.isAtEnd()) {
+      if (this.check(TokenType.ANNOTATION)) {
+        this.parseAnnotation();
+        this.skipNewlines();
+        continue;
+      }
+      const stmt = this.parseStatementSafe();
+      if (stmt) statements.push(stmt);
+      this.skipNewlines();
+    }
+    this.expect(TokenType.DEDENT, 'Expected dedent');
+
+    const last = statements.pop();
+    let value: Expression;
+    if (last && last.kind === 'ExpressionStatement') {
+      value = (last as ExpressionStatement).expression;
+    } else {
+      if (last) statements.push(last);
+      value = { kind: 'LiteralExpression', valueType: 'na', value: null, loc } as LiteralExpression;
+    }
+    if (statements.length === 0) return value;
+    return { kind: 'BlockExpression', statements, value, loc } as BlockExpression;
   }
 
   // ── Type Annotation ──────────────────────────────────────────────────────
@@ -1326,6 +1396,18 @@ export class Parser {
       if (next.type === TokenType.IDENTIFIER) return true;
       if (next.type === TokenType.LT && this.looksLikeGenericType()) return true;
       if (next.type === TokenType.LBRACKET && this.peekAt(2).type === TokenType.RBRACKET) return true;
+      // Dotted type names: chart.point, chart.point[] and chart.point<...>.
+      if (next.type === TokenType.DOT) {
+        let index = 1;
+        while (this.peekAt(index).type === TokenType.DOT &&
+               this.peekAt(index + 1).type === TokenType.IDENTIFIER) {
+          index += 2;
+        }
+        const after = this.peekAt(index).type;
+        if (after === TokenType.IDENTIFIER) return true;
+        if (after === TokenType.LT && this.looksLikeGenericType()) return true;
+        if (after === TokenType.LBRACKET && this.peekAt(index + 1).type === TokenType.RBRACKET) return true;
+      }
     }
     return false;
   }
@@ -1348,6 +1430,11 @@ export class Parser {
     const cur = this.peek();
     if (BASE_TYPE_KWS.has(cur.type) || cur.type === TokenType.IDENTIFIER) {
       baseType = this.advance().value;
+      while (this.check(TokenType.DOT)) {
+        this.advance();
+        const part = this.expect(TokenType.IDENTIFIER, 'Expected type name after .');
+        baseType += `.${part.value}`;
+      }
     } else {
       throw new Error(`Expected type name, got ${cur.type}`);
     }

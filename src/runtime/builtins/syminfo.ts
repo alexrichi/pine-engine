@@ -13,6 +13,10 @@ export interface SymInfo {
   basecurrency: string;
   currency: string;
   description: string;
+  /** Function form: `syminfo.ticker(symbol)`. */
+  tickerOf(symbol: unknown): string;
+  /** Function form: `syminfo.prefix(symbol)`. */
+  prefixOf(symbol: unknown): string;
 }
 
 /**
@@ -36,5 +40,20 @@ export function createSyminfo(overrides: Partial<SymInfo> = {}): SymInfo {
     currency: overrides.currency ?? 'USD',
     description: overrides.description ?? ticker,
     ...overrides,
+    tickerOf: (symbol: unknown) => splitSymbol(symbol)[1],
+    prefixOf: (symbol: unknown) => splitSymbol(symbol)[0],
   };
+}
+
+/** `"BINANCE:ETHUSDT"` → `["BINANCE", "ETHUSDT"]`; no prefix yields empty strings. */
+function splitSymbol(symbol: unknown): [string, string] {
+  const value = symbol && typeof symbol === 'object' && 'get' in symbol
+    ? (symbol as { get(index: number): unknown }).get(0)
+    : symbol;
+  if (value === null || value === undefined || (typeof value === 'number' && Number.isNaN(value))) {
+    return ['', ''];
+  }
+  const plain = String(value);
+  const at = plain.indexOf(':');
+  return at < 0 ? ['', ''] : [plain.slice(0, at), plain.slice(at + 1)];
 }

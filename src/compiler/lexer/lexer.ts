@@ -16,6 +16,10 @@ export class Lexer {
   private depth: number = 0;
   /** The previous newline was suppressed for implicit line continuation. */
   private continuation: boolean = false;
+  /** Indentation of the current logical line. */
+  private lineIndent: number = 0;
+  /** Indents of open `switch` headers; arms may start with `-`/`not`/`and`/`or`. */
+  private switchIndents: number[] = [];
 
   constructor(source: string, reporter: DiagnosticReporter) {
     this.source = source;
@@ -83,6 +87,11 @@ export class Lexer {
 
     // Emit indent/dedent tokens if needed
     const loc: SourceLocation = { line: startLine, column: 1, offset: startPos };
+    this.lineIndent = indent;
+    while (this.switchIndents.length > 0 &&
+           indent <= this.switchIndents[this.switchIndents.length - 1]!) {
+      this.switchIndents.pop();
+    }
     if (this.continuation) {
       // A line continuation is part of the previous logical line; its
       // indentation must not open a block.
@@ -118,17 +127,25 @@ export class Lexer {
       // and not a continuation token (implicit line continuation)
       const last = this.tokens[this.tokens.length - 1];
       const leading = this.peekNonSpace();
-      const leadingOperator = leading !== '' && '+-*/%?:<>=&|'.includes(leading);
+      // `=>` starts a switch arm or a function body, not a continuation.
+      const leadingArrow = this.source.slice(this.pos).trimStart().startsWith('=>');
+      const leadingOperator = !leadingArrow && leading !== '' && '+-*/%?:<>=&|'.includes(leading);
       const leadingWord = this.peekLeadingWordOperator();
+      // `switch` ends its line; the next line starts a case even when the case
+      // condition begins with `not`/`and`/`or`.
+      const afterSwitch = !!last && last.type === TokenType.SWITCH;
+      const inSwitch = this.switchIndents.length > 0;
       const continued =
-        this.depth > 0 ||
-        leadingOperator ||
-        leadingWord ||
-        (!!last &&
-          last.type !== TokenType.NEWLINE &&
-          last.type !== TokenType.INDENT &&
-          last.type !== TokenType.DEDENT &&
-          this.isContinuationToken(last.type));
+        !afterSwitch &&
+        !inSwitch &&
+        (this.depth > 0 ||
+          leadingOperator ||
+          leadingWord ||
+          (!!last &&
+            last.type !== TokenType.NEWLINE &&
+            last.type !== TokenType.INDENT &&
+            last.type !== TokenType.DEDENT &&
+            this.isContinuationToken(last.type)));
       if (last && last.type !== TokenType.NEWLINE &&
           last.type !== TokenType.INDENT && last.type !== TokenType.DEDENT && !continued) {
         this.tokens.push({ type: TokenType.NEWLINE, value: '\n', loc });
@@ -346,6 +363,7 @@ export class Lexer {
     const kwType = KEYWORDS[value];
     if (kwType !== undefined) {
       this.tokens.push({ type: kwType, value, loc });
+      if (kwType === TokenType.SWITCH) this.switchIndents.push(this.lineIndent);
     } else {
       this.tokens.push({ type: TokenType.IDENTIFIER, value, loc });
     }

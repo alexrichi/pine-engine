@@ -3,7 +3,7 @@
 export const BUILTIN_VARS = new Set([
   'open', 'high', 'low', 'close', 'volume', 'time',
   'bar_index', 'hl2', 'hlc3', 'ohlc4',
-  'time_close', 'timenow', 'last_bar_index', 'last_bar_time',
+  'time_close', 'timenow', 'time_tradingday', 'last_bar_index', 'last_bar_time',
 ]);
 
 export const COLOR_CONSTANTS: Record<string, string> = {

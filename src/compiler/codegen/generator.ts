@@ -13,7 +13,9 @@ import {
   IdentifierExpression, LiteralExpression, ArrayLiteralExpression,
   GroupExpression, TupleExpression, LambdaExpression,
   IfExpression, SwitchExpression,
+  BlockExpression,
   CallArgument,
+  FunctionParam,
 } from '../ast/nodes';
 
 export interface GenerateResult {
@@ -37,17 +39,85 @@ function safeIdent(name: string): string {
   return JS_RESERVED.has(name) ? `__pine_${name}` : name;
 }
 
+// Pine keeps functions in a namespace separate from variables, so a local
+// `var rbf = rbf(...)` must not shadow the function `rbf`. Generated user
+// functions therefore live under their own prefix.
+function fnName(name: string): string {
+  return `__fn_${safeIdent(name)}`;
+}
+
+// UDT constructors live in their own namespace for the same reason as functions.
+function udtName(name: string): string {
+  return `__udt_${safeIdent(name)}`;
+}
+
 const ARRAY_METHOD_RUNTIME: Record<string, string> = {
   binary_search: 'binarySearch',
   binary_search_leftmost: 'binarySearchLeftmost',
   binary_search_rightmost: 'binarySearchRightmost',
   percentile_linear_interpolation: 'percentileLinearInterpolation',
   percentile_nearest_rank: 'percentileNearestRank',
+  sort_indices: 'sortIndices',
 };
+
+const MATRIX_METHOD_RUNTIME: Record<string, string> = {
+  add_row: 'addRow',
+  add_col: 'addCol',
+  remove_row: 'removeRow',
+  remove_col: 'removeCol',
+  elements_count: 'elementsCount',
+  is_square: 'isSquare',
+  is_zero: 'isZero',
+  is_binary: 'isBinary',
+  is_identity: 'isIdentity',
+  is_diagonal: 'isDiagonal',
+  is_antidiagonal: 'isAntidiagonal',
+  is_symmetric: 'isSymmetric',
+  is_antisymmetric: 'isAntisymmetric',
+  is_triangular: 'isTriangular',
+  is_stochastic: 'isStochastic',
+};
+
+// Method names that only a matrix owns. Used when the receiver's type was not
+// tracked, e.g. `matrix.pinv(m).mult(v)`.
+const MATRIX_ONLY_METHODS = new Set([
+  'mult', 'pow', 'kron', 'trace', 'det', 'inv', 'pinv', 'rank', 'eigenvalues',
+  'eigenvectors', 'transpose', 'reshape', 'submatrix', 'row', 'col', 'rows',
+  'columns', 'add_row', 'add_col', 'remove_row', 'remove_col', 'elements_count',
+  'is_square', 'is_zero', 'is_binary', 'is_identity', 'is_diagonal',
+  'is_antidiagonal', 'is_symmetric', 'is_antisymmetric', 'is_triangular',
+  'is_stochastic',
+]);
+
+// Method names that only an array owns. Ambiguous names (get/set/copy/sort/fill)
+// stay with the receiver's tracked type.
+const ARRAY_ONLY_METHODS = new Set([
+  'push', 'pop', 'size', 'shift', 'unshift', 'reverse', 'clear', 'insert',
+  'remove', 'includes', 'indexof', 'lastindexof', 'join', 'slice', 'sum',
+  'avg', 'max', 'min', 'first', 'last', 'range', 'median', 'stdev', 'variance',
+  'concat', 'from', 'abs', 'binary_search', 'binary_search_leftmost',
+  'binary_search_rightmost', 'every', 'some', 'covariance', 'mode',
+  'percentile_linear_interpolation', 'percentile_nearest_rank', 'percentrank',
+  'standardize', 'sort_indices',
+]);
+
+// Method names that only a map owns.
+const MAP_ONLY_METHODS = new Set(['put', 'contains', 'keys', 'values']);
+
+const DRAWING_NAMESPACES = new Set(['line', 'label', 'box', 'table', 'linefill', 'polyline']);
 
 // Drawing methods whose name identifies the owning namespace even when the
 // receiver's type was not tracked (e.g. `l = array.get(lines, i)`).
 const DRAWING_METHOD_NAMESPACES: Record<string, string> = {
+  // Shared drawing methods operate on the plain object fields, so the line
+  // module handles them for every drawing type.
+  delete: 'line', set_color: 'line', set_style: 'line',
+  get_color: 'line', get_style: 'line',
+  set_first_point: 'line', set_second_point: 'line',
+  get_line1: 'linefill', get_line2: 'linefill',
+  set_point: 'label', set_xloc: 'line', set_text_font_family: 'label',
+  set_text_formatting: 'label', set_text_wrap: 'box',
+  set_bottom_right_point: 'box', set_top_left_point: 'box',
   set_x1: 'line', set_y1: 'line', set_x2: 'line', set_y2: 'line',
   set_xy1: 'line', set_xy2: 'line', set_extend: 'line', set_width: 'line',
   get_x1: 'line', get_y1: 'line', get_x2: 'line', get_y2: 'line', get_price: 'line',
@@ -122,6 +192,8 @@ export class CodeGenerator {
   private userFunctions: Set<string> = new Set();
   /** Methods declared on builtin drawing types; called as plain functions. */
   private builtinMethods: Map<string, string> = new Map();
+/** Receiver alias while generating a free function for a builtin-type method. */
+private thisAlias: string | null = null;
 
   // Metadata extracted from indicator()/strategy() calls
   private metadata: ScriptMetadata = {
@@ -157,6 +229,7 @@ export class CodeGenerator {
     this.usedInputIds = new Set();
     this.userFunctions = new Set();
     this.builtinMethods = new Map();
+    this.thisAlias = null;
     this.metadata = {
       type: 'indicator',
       title: 'Pine Script',
@@ -233,7 +306,7 @@ export class CodeGenerator {
       if (stmt.kind === 'MethodDeclaration') {
         const md = stmt as MethodDeclaration;
         this.udtMethods.set(md.name, md.thisType);
-        if (['line', 'label', 'box', 'table', 'linefill', 'polyline', 'chart'].includes(md.thisType)) {
+        if (['line', 'label', 'box', 'table', 'linefill', 'polyline', 'chart', 'array', 'map', 'matrix', 'float', 'int', 'bool', 'string', 'color'].includes(md.thisType)) {
           this.builtinMethods.set(md.name, md.thisType);
           this.userFunctions.add(md.name);
         }
@@ -540,8 +613,9 @@ export class CodeGenerator {
 
   private genFunctionDecl(decl: FunctionDeclaration, out: string[]): void {
     const params = decl.params.map(p => safeIdent(p.name)).join(', ');
-    out.push(this.indent() + `function ${safeIdent(decl.name)}(${params}) {`);
+    out.push(this.indent() + `function ${fnName(decl.name)}(${params}) {`);
     this.indentLevel++;
+    const savedTypes = this.pushParamTypes(decl.params);
     if (Array.isArray(decl.body)) {
       // A block-bodied Pine function returns the value of its last statement,
       // including the last expression inside an if/else branch.
@@ -550,8 +624,26 @@ export class CodeGenerator {
       // Expression body
       out.push(this.indent() + `return ${this.genExpr(decl.body)};`);
     }
+    this.restoreParamTypes(savedTypes);
     this.indentLevel--;
     out.push(this.indent() + '}');
+  }
+
+  /** Make typed parameters visible to method dispatch inside the body. */
+  private pushParamTypes(params: FunctionParam[]): Map<string, string | undefined> {
+    const saved = new Map<string, string | undefined>();
+    for (const param of params) {
+      saved.set(param.name, this.varTypes.get(param.name));
+      if (param.typeAnnotation) this.varTypes.set(param.name, param.typeAnnotation.baseType);
+    }
+    return saved;
+  }
+
+  private restoreParamTypes(saved: Map<string, string | undefined>): void {
+    for (const [name, type] of saved) {
+      if (type === undefined) this.varTypes.delete(name);
+      else this.varTypes.set(name, type);
+    }
   }
 
   private genTailBlock(body: Statement[], out: string[]): void {
@@ -648,7 +740,7 @@ export class CodeGenerator {
     this.udtFieldOrder.set(name, decl.fields.map(f => f.name));
 
     // Constructor function
-    out.push(this.indent() + `function ${safeIdent(name)}(fields) {`);
+    out.push(this.indent() + `function ${udtName(name)}(fields) {`);
     this.indentLevel++;
     out.push(this.indent() + 'fields = fields || {};');
     for (const field of decl.fields) {
@@ -663,7 +755,7 @@ export class CodeGenerator {
     out.push(this.indent() + '}');
 
     // Static .new() factory
-    out.push(this.indent() + `${name}.new = function(fields) { return new ${name}(fields || {}); };`);
+    out.push(this.indent() + `${udtName(name)}.new = function(fields) { return new ${udtName(name)}(fields || {}); };`);
   }
 
   private defaultForType(baseType: string): string {
@@ -685,21 +777,26 @@ export class CodeGenerator {
     // A method on a builtin drawing type is a plain function with the object as
     // its first parameter; there is no class to attach a prototype to.
     if (this.builtinMethods.has(decl.name)) {
-      const allParams = [decl.selfName, ...decl.params.map(p => p.name)].map(safeIdent).join(', ');
-      out.push(this.indent() + `function ${safeIdent(decl.name)}(${allParams}) {`);
+      // `this` is not a legal JS parameter name, so the receiver is bound to a
+      // local alias that genIdentifier emits for `this` inside the body.
+      const selfName = decl.selfName === 'this' ? '__pine_self' : safeIdent(decl.selfName);
+      const allParams = [selfName, ...decl.params.map(p => safeIdent(p.name))].join(', ');
+      out.push(this.indent() + `function ${fnName(decl.name)}(${allParams}) {`);
       this.indentLevel++;
-      out.push(this.indent() + `var self = ${safeIdent(decl.selfName)};`);
+      this.thisAlias = selfName;
+      out.push(this.indent() + `var self = ${selfName};`);
       if (Array.isArray(decl.body)) {
         this.genTailBlock(decl.body, out);
       } else {
         out.push(this.indent() + `return ${this.genExpr(decl.body)};`);
       }
+      this.thisAlias = null;
       this.indentLevel--;
       out.push(this.indent() + '}');
       return;
     }
 
-    out.push(this.indent() + `${safeIdent(typeName)}.prototype.${decl.name} = function(${params}) {`);
+    out.push(this.indent() + `${udtName(typeName)}.prototype.${decl.name} = function(${params}) {`);
     this.indentLevel++;
     out.push(this.indent() + 'var self = this;');
     // Pine lets the receiver parameter keep its own name (`IS`, `Gap`, ...).
@@ -731,13 +828,20 @@ export class CodeGenerator {
       }
     }
 
-    return `${safeIdent(typeName)}.new({${parts.join(', ')}})`;
+    return `${udtName(typeName)}.new({${parts.join(', ')}})`;
   }
 
   private genAssignment(stmt: AssignmentStatement, out: string[]): void {
     const target = stmt.target;
     const op = stmt.operator;
     const rhs = this.genExpr(stmt.value);
+
+    // Track the declared type for plain declarations, so method syntax on
+    // `x = map.new<...>()` or `x = Type.new(...)` dispatches correctly.
+    if (op === '=' && target.kind === 'IdentifierExpression' && stmt.value.kind === 'CallExpression') {
+      const inferred = this.inferTypeFromCall(this.calleeToString((stmt.value as CallExpression).callee));
+      if (inferred) this.varTypes.set((target as IdentifierExpression).name, inferred);
+    }
 
     // Determine if target is a var/varip
     const targetName = this.getIdentName(target);
@@ -936,6 +1040,8 @@ export class CodeGenerator {
         return this.genIfExpr(expr as IfExpression);
       case 'SwitchExpression':
         return this.genSwitchExpr(expr as SwitchExpression);
+      case 'BlockExpression':
+        return this.genBlockExpr(expr as BlockExpression);
       default:
         return '/* unknown expr */';
     }
@@ -973,6 +1079,9 @@ export class CodeGenerator {
 
     // barstate properties accessed as top-level identifier
     if (name === 'barstate') return '__rt.barstate';
+
+    // `this` is the UDT method receiver and is already a valid JS binding.
+    if (name === 'this') return this.thisAlias ?? 'this';
 
     // Time functions used as variables (e.g. hour, minute - they're both functions and vars in Pine)
     const timeFnVars = new Set(['hour', 'minute', 'second', 'dayofweek', 'dayofmonth', 'month', 'year']);
@@ -1137,6 +1246,21 @@ export class CodeGenerator {
       return `__rt.${helper}(${this.genArgs(call.args)})`;
     }
 
+    // Drawing-type casts (`line(na)`, `box(na)`) keep the handle or yield null.
+    if (calleeName === 'line' || calleeName === 'label' || calleeName === 'box' ||
+        calleeName === 'table' || calleeName === 'linefill' || calleeName === 'polyline' ||
+        calleeName === 'chart.point') {
+      return `__rt.drawingHandle(${this.genArgs(call.args)})`;
+    }
+
+    // Function forms of syminfo variables: syminfo.ticker(symbol), syminfo.prefix(symbol).
+    if (calleeName === 'syminfo.ticker') {
+      return `__rt.syminfo.tickerOf(${this.genArgs(call.args)})`;
+    }
+    if (calleeName === 'syminfo.prefix') {
+      return `__rt.syminfo.prefixOf(${this.genArgs(call.args)})`;
+    }
+
     // `time(...)` is the session filter; bare `time` stays the bar timestamp.
     if (calleeName === 'time' && call.args.length > 0) {
       return `__rt.timeCall(${this.genArgs(call.args)})`;
@@ -1242,9 +1366,9 @@ export class CodeGenerator {
           if (this.builtinMethods.has(method)) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-            return `${safeIdent(method)}(${objExpr}${argsStr})`;
+            return `${fnName(method)}(${objExpr}${argsStr})`;
           }
-          if ((objVarType && this.udtTypes.has(objVarType)) || this.udtMethods.has(method)) {
+          if (objVarType && this.udtTypes.has(objVarType)) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? this.genArgs(call.args) : '';
             return `${objExpr}.${method}(${argsStr})`;
@@ -1291,7 +1415,10 @@ export class CodeGenerator {
               'cell_set_text_size', 'cell_set_text_halign', 'cell_set_text_valign',
               'cell_set_tooltip',
             ]);
-            if (arrayMethods.has(method)) ns = 'array';
+            if (MATRIX_ONLY_METHODS.has(method)) ns = 'matrix';
+            else if (ARRAY_ONLY_METHODS.has(method)) ns = 'array';
+            else if (MAP_ONLY_METHODS.has(method)) ns = 'map';
+            else if (arrayMethods.has(method)) ns = 'array';
             else if (tableMethods.has(method)) ns = 'table';
             else if (mapMethods.has(method)) {
               // Map methods - use tracked type if available
@@ -1309,18 +1436,42 @@ export class CodeGenerator {
           if (ns) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-            const runtime = ns === 'array' ? ARRAY_METHOD_RUNTIME[method] ?? method : method;
-            return `__rt.${ns}.${runtime}(${objExpr}${argsStr})`;
+            const runtime = ns === 'array' ? ARRAY_METHOD_RUNTIME[method] ?? method
+              : ns === 'matrix' ? MATRIX_METHOD_RUNTIME[method] ?? method
+              : method;
+            const receiver = DRAWING_NAMESPACES.has(ns) ? `__rt.drawingCall(${objExpr})` : objExpr;
+            return `__rt.${ns}.${runtime}(${receiver}${argsStr})`;
+          }
+          if (this.udtMethods.has(method)) {
+            const objExpr = this.genExpr(mem.object);
+            const argsStr = call.args.length > 0 ? this.genArgs(call.args) : '';
+            return `${objExpr}.${method}(${argsStr})`;
           }
         }
       }
       // A drawing method on a field or call result (`element.bull.set_rightbottom`).
       if (mem.object.kind !== 'IdentifierExpression') {
-        const ns = DRAWING_METHOD_NAMESPACES[mem.property];
+        const objExpr = this.genExpr(mem.object);
+        const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
+        const method = mem.property;
+        const ns = DRAWING_METHOD_NAMESPACES[method];
         if (ns) {
-          const objExpr = this.genExpr(mem.object);
-          const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-          return `__rt.${ns}.${mem.property}(${objExpr}${argsStr})`;
+          return `__rt.${ns}.${method}(__rt.drawingCall(${objExpr})${argsStr})`;
+        }
+        if (MATRIX_ONLY_METHODS.has(method)) {
+          return `__rt.matrix.${MATRIX_METHOD_RUNTIME[method] ?? method}(${objExpr}${argsStr})`;
+        }
+        if (ARRAY_ONLY_METHODS.has(method)) {
+          return `__rt.array.${ARRAY_METHOD_RUNTIME[method] ?? method}(${objExpr}${argsStr})`;
+        }
+        if (MAP_ONLY_METHODS.has(method)) {
+          return `__rt.map.${method}(${objExpr}${argsStr})`;
+        }
+        if (this.builtinMethods.has(method)) {
+          return `${fnName(method)}(${objExpr}${argsStr})`;
+        }
+        if (this.udtMethods.has(method)) {
+          return `${objExpr}.${method}(${argsStr.slice(2)})`;
         }
       }
     }
@@ -1341,10 +1492,9 @@ export class CodeGenerator {
     // throwing a ReferenceError.
     if (call.callee.kind === 'IdentifierExpression') {
       const name = (call.callee as IdentifierExpression).name;
-      if (!this.userFunctions.has(name)) {
-        const args = this.genArgs(call.args);
-        return `__rt.missing(${JSON.stringify(name)})(${args})`;
-      }
+      const args = this.genArgs(call.args);
+      if (this.userFunctions.has(name)) return `${fnName(name)}(${args})`;
+      return `__rt.missing(${JSON.stringify(name)})(${args})`;
     }
 
     // Unknown - emit as-is but try to resolve callee expression
@@ -2038,6 +2188,18 @@ export class CodeGenerator {
     const then = this.genExpr(expr.thenBranch);
     const alt = expr.elseBranch ? this.genExpr(expr.elseBranch) : '__rt.na';
     return `(${cond} ? ${then} : ${alt})`;
+  }
+
+  private genBlockExpr(expr: BlockExpression): string {
+    const lines: string[] = [];
+    this.indentLevel++;
+    try {
+      for (const stmt of expr.statements) this.generateStatement(stmt, lines);
+      lines.push(`${this.indent()}return ${this.genExpr(expr.value)};`);
+    } finally {
+      this.indentLevel--;
+    }
+    return `(() => {\n${lines.join('\n')}\n${this.indent()}})()`;
   }
 
   private genSwitchExpr(expr: SwitchExpression): string {

@@ -1,0 +1,109 @@
+import { describe, expect, it } from 'vitest';
+import { compilePine, runPineScript, type PineBar } from '../src';
+
+const bars: PineBar[] = Array.from({ length: 8 }, (_, index) => ({
+  time: 1_700_000_000_000 + index * 3_600_000,
+  open: 100 + index,
+  high: 101 + index,
+  low: 99 + index,
+  close: 100.5 + index,
+  volume: 10 + index,
+}));
+
+function run(source: string) {
+  return runPineScript({ source, bars, timeframe: '60', symbol: 'BINANCE:BTCUSDT.P' });
+}
+
+describe('Library sweep regressions', () => {
+  it('parses switch arms that start with not and a negative number', () => {
+    const result = run(`//@version=6
+indicator("switch")
+pick(int n, bool flag) =>
+    switch n
+        not flag => 1
+        -1 => 2
+        => 3
+plot(pick(-1, false), "v")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(2);
+  });
+
+  it('returns the last value of a multi-statement if expression', () => {
+    const result = run(`//@version=6
+indicator("if")
+value = if close > open
+    step = close - open
+    step * 2
+else
+    0
+plot(value, "v")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBeCloseTo((100.5 + 7 - (100 + 7)) * 2, 6);
+  });
+
+  it('keeps a UDT constructor separate from a variable of the same name', () => {
+    const result = run(`//@version=6
+indicator("udt")
+type level
+    float price = 0.0
+level = level.new(price = close)
+plot(level.price, "p")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBeCloseTo(107.5, 6);
+  });
+
+  it('supports the syminfo.ticker(symbol) function form', () => {
+    const result = run(`//@version=6
+indicator("syminfo")
+plot(str.length(syminfo.ticker("BINANCE:ETHUSDT")), "len")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(7);
+  });
+
+  it('accepts fixed timezone offsets like GMT-5', () => {
+    const result = run(`//@version=6
+indicator("tz")
+plot(hour(1700000000000, "GMT-5"), "h")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(17);
+  });
+
+  it('ignores drawing setters on an na handle', () => {
+    const result = run(`//@version=6
+indicator("draw")
+var line ln = na
+line.set_x2(ln, bar_index)
+line.delete(ln)
+plot(close, "c")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+  });
+
+  it('compiles a typed array declaration with a dotted element type', () => {
+    const result = run(`//@version=6
+indicator("points")
+chart.point[] points = array.new<chart.point>()
+points.push(chart.point.now(close))
+plot(points.size(), "n")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(1);
+  });
+
+  it('reports no compile diagnostics for a typed inline method body', () => {
+    const compiled = compilePine({
+      source: `//@version=6
+indicator("inline")
+method valid(float x) => bool ok = not na(x)
+plot(valid(close) ? 1 : 0, "v")
+`,
+    });
+    expect(compiled.ok).toBe(true);
+  });
+});

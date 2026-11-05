@@ -164,6 +164,7 @@ export function createTableModule() {
     },
 
     delete(table: TableObject): void {
+      if (!table || typeof table !== 'object') return;
       table._deleted = true;
     },
 

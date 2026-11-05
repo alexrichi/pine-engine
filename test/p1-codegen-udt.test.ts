@@ -24,7 +24,7 @@ type Point
     float y = 0.0
 `;
     const code = compileOk(src);
-    expect(code).toContain('function Point(fields)');
+    expect(code).toContain('function __udt_Point(fields)');
     expect(code).toContain('fields = fields || {}');
     expect(code).toContain('this.x =');
     expect(code).toContain('this.y =');
@@ -40,7 +40,7 @@ type Point
 `;
     const code = compileOk(src);
     expect(code).toContain('Point.new = function(fields)');
-    expect(code).toContain('return new Point(fields || {})');
+    expect(code).toContain('return new __udt_Point(fields || {})');
   });
 
   it('uses explicit default values in constructor', () => {
@@ -271,7 +271,7 @@ b = Bar.new(h=high, l=low)
 plot(b.hl2())
 `;
     const code = compileOk(src);
-    expect(code).toContain('function Bar(fields)');
+    expect(code).toContain('function __udt_Bar(fields)');
     expect(code).toContain('Bar.prototype.hl2 = function()');
     expect(code).toContain('Bar.new({h: __rt.high');
     expect(code).toContain('b.hl2()');
@@ -290,10 +290,10 @@ o = Outer.new()
 i = Inner.new(v=2.0)
 `;
     const code = compileOk(src);
-    expect(code).toContain('function Inner(fields)');
-    expect(code).toContain('function Outer(fields)');
-    expect(code).toContain('Outer.new({})');
-    expect(code).toContain('Inner.new({v: 2');
+    expect(code).toContain('function __udt_Inner(fields)');
+    expect(code).toContain('function __udt_Outer(fields)');
+    expect(code).toContain('__udt_Outer.new({})');
+    expect(code).toContain('__udt_Inner.new({v: 2');
   });
 
   it('Candle UDT with range and isGreen methods', () => {
@@ -315,9 +315,9 @@ green = c.isGreen()
 plot(r, "Range")
 `;
     const code = compileOk(src);
-    expect(code).toContain('function Candle(fields)');
-    expect(code).toContain('Candle.prototype.range = function()');
-    expect(code).toContain('Candle.prototype.isGreen = function()');
+    expect(code).toContain('function __udt_Candle(fields)');
+    expect(code).toContain('__udt_Candle.prototype.range = function()');
+    expect(code).toContain('__udt_Candle.prototype.isGreen = function()');
     expect(code).toContain('c.range()');
     expect(code).toContain('c.isGreen()');
   });
