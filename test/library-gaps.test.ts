@@ -44,6 +44,26 @@ plot(pick(2), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(1);
   });
 
+  it('resolves input defaults from string constants and keeps options', () => {
+    const compiled = compilePine({
+      source: `//@version=6
+indicator("Inputs")
+ALL = "All"
+SOME = "Some"
+mode = input.string(ALL, "Mode", options=[ALL, SOME], group="Group", inline="row", tooltip="Tip")
+plot(str.length(mode), "n")
+`,
+    });
+    expect(compiled.ok).toBe(true);
+    const input = compiled.meta.inputs[0]!;
+    expect(input.name).toBe('Mode');
+    expect(input.defval).toBe('All');
+    expect(input.options).toEqual(['All', 'Some']);
+    expect(input.group).toBe('Group');
+    expect(input.inline).toBe('row');
+    expect(input.tooltip).toBe('Tip');
+  });
+
   it('treats a UDT method call on na as na', () => {
     const result = run(`//@version=6
 indicator("na method")

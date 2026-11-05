@@ -26,6 +26,14 @@ export interface InputDef {
   title: string;
   type: string;
   defaultValue: unknown;
+  /** Dropdown choices for `input.string(..., options=[...])`. */
+  options?: string[];
+  group?: string;
+  inline?: string;
+  tooltip?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 export interface PlotDef {

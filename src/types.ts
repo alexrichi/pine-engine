@@ -235,6 +235,13 @@ export interface PineInput {
   name: string;
   type: string;
   defval: number | boolean | string;
+  options?: string[];
+  group?: string;
+  inline?: string;
+  tooltip?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 export interface PineScriptMeta {

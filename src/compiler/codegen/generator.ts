@@ -189,6 +189,8 @@ export class CodeGenerator {
   // share state with a second call to the same function.
   private callSiteIndex = 0;
   private usedInputIds: Set<string> = new Set();
+  /** Top-level literal constants, so `input.string(ALL, ...)` keeps its default. */
+  private constLiterals = new Map<string, string | number | boolean>();
   private userFunctions: Set<string> = new Set();
   /** Methods declared on builtin drawing types; called as plain functions. */
   private builtinMethods: Map<string, string> = new Map();
@@ -227,6 +229,7 @@ private thisAlias: string | null = null;
     this.plotbarIndex = 0;
     this.callSiteIndex = 0;
     this.usedInputIds = new Set();
+    this.constLiterals = new Map();
     this.userFunctions = new Set();
     this.builtinMethods = new Map();
     this.thisAlias = null;
@@ -291,6 +294,24 @@ private thisAlias: string | null = null;
 
   private firstPass(program: Program): void {
     for (const stmt of program.body) {
+      // Literal constants feed input defaults and titles (`ALL = "All"`).
+      if (stmt.kind === 'VariableDeclaration') {
+        const decl = stmt as VariableDeclaration;
+        if (decl.value.kind === 'LiteralExpression') {
+          const lit = decl.value as LiteralExpression;
+          if (lit.value !== null) this.constLiterals.set(decl.name, lit.value as string | number | boolean);
+        }
+      }
+      if (stmt.kind === 'AssignmentStatement') {
+        const assign = stmt as AssignmentStatement;
+        if (assign.operator === '=' && assign.target.kind === 'IdentifierExpression' &&
+            assign.value.kind === 'LiteralExpression') {
+          const lit = assign.value as LiteralExpression;
+          if (lit.value !== null) {
+            this.constLiterals.set((assign.target as IdentifierExpression).name, lit.value as string | number | boolean);
+          }
+        }
+      }
       // Pre-register UDT type names so they're available for constructor detection
       if (stmt.kind === 'TypeDeclaration') {
         const td = stmt as TypeDeclaration;
@@ -436,6 +457,10 @@ private thisAlias: string | null = null;
   private getLiteralValue(expr: Expression): unknown {
     if (expr.kind === 'LiteralExpression') {
       return (expr as LiteralExpression).value;
+    }
+    if (expr.kind === 'IdentifierExpression') {
+      const name = (expr as IdentifierExpression).name;
+      return this.constLiterals.get(name);
     }
     if (expr.kind === 'UnaryExpression') {
       const unary = expr as UnaryExpression;
@@ -1646,6 +1671,13 @@ private thisAlias: string | null = null;
     let defaultValue: unknown = undefined;
     let type = 'float';
     let defaultSource = 'close';
+    let options: string[] | undefined;
+    let group: string | undefined;
+    let inline: string | undefined;
+    let tooltip: string | undefined;
+    let min: number | undefined;
+    let max: number | undefined;
+    let step: number | undefined;
 
     const calleeName = this.calleeToString(call.callee);
     if (calleeName === 'input.int') type = 'int';
@@ -1671,6 +1703,29 @@ private thisAlias: string | null = null;
       } else if (arg.name === 'id') {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'string') id = v;
+      } else if (arg.name === 'options' && arg.value.kind === 'ArrayLiteralExpression') {
+        const values = (arg.value as ArrayLiteralExpression).elements
+          .map((element) => this.getLiteralValue(element))
+          .filter((value): value is string => typeof value === 'string');
+        if (values.length > 0) options = values;
+      } else if (arg.name === 'group') {
+        const v = this.getLiteralValue(arg.value);
+        if (typeof v === 'string') group = v;
+      } else if (arg.name === 'inline') {
+        const v = this.getLiteralValue(arg.value);
+        if (typeof v === 'string') inline = v;
+      } else if (arg.name === 'tooltip') {
+        const v = this.getLiteralValue(arg.value);
+        if (typeof v === 'string') tooltip = v;
+      } else if (arg.name === 'minval') {
+        const v = this.getLiteralValue(arg.value);
+        if (typeof v === 'number') min = v;
+      } else if (arg.name === 'maxval') {
+        const v = this.getLiteralValue(arg.value);
+        if (typeof v === 'number') max = v;
+      } else if (arg.name === 'step') {
+        const v = this.getLiteralValue(arg.value);
+        if (typeof v === 'number') step = v;
       }
     });
 
@@ -1685,7 +1740,16 @@ private thisAlias: string | null = null;
         kind: 'IdentifierExpression',
         name: 'close',
       } as IdentifierExpression);
-      this.metadata.inputs.push({ id, title, type, defaultValue });
+      this.metadata.inputs.push({
+        id, title, type, defaultValue,
+        ...(options ? { options } : {}),
+        ...(group ? { group } : {}),
+        ...(inline ? { inline } : {}),
+        ...(tooltip ? { tooltip } : {}),
+        ...(min !== undefined ? { min } : {}),
+        ...(max !== undefined ? { max } : {}),
+        ...(step !== undefined ? { step } : {}),
+      });
       return `__rt.getSourceInput(${JSON.stringify(id)}, ${fallback})`;
     }
     if (defaultValue === undefined) {
@@ -1703,7 +1767,16 @@ private thisAlias: string | null = null;
     }
     this.usedInputIds.add(id);
 
-    this.metadata.inputs.push({ id, title, type, defaultValue });
+    this.metadata.inputs.push({
+      id, title, type, defaultValue,
+      ...(options ? { options } : {}),
+      ...(group ? { group } : {}),
+      ...(inline ? { inline } : {}),
+      ...(tooltip ? { tooltip } : {}),
+      ...(min !== undefined ? { min } : {}),
+      ...(max !== undefined ? { max } : {}),
+      ...(step !== undefined ? { step } : {}),
+    });
     return `__rt.getInput(${JSON.stringify(id)})`;
   }
 

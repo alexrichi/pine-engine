@@ -88,6 +88,13 @@ function inputOf(input: InputDef): PineInput {
     name: input.title || input.id,
     type: input.type,
     defval: inputValue(input.defaultValue, input.type),
+    ...(input.options ? { options: input.options } : {}),
+    ...(input.group ? { group: input.group } : {}),
+    ...(input.inline ? { inline: input.inline } : {}),
+    ...(input.tooltip ? { tooltip: input.tooltip } : {}),
+    ...(input.min !== undefined ? { min: input.min } : {}),
+    ...(input.max !== undefined ? { max: input.max } : {}),
+    ...(input.step !== undefined ? { step: input.step } : {}),
   };
 }
 
