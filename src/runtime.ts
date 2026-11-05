@@ -4,6 +4,7 @@
 } from '@opus-aether-ai/pine-transpiler';
 import { createStd, createStdProxy } from './std';
 import { rewritePrimitiveMethods } from './methods';
+import { neutralizeSecurity } from './security';
 import { Series, numberValue, type PineContext } from './series';
 import { timeframeMinutes, timeframeMs } from './timeframe';
 import type {
@@ -42,6 +43,7 @@ const EMPTY_META: PineScriptMeta = {
   overlay: false,
   inputs: [],
   plots: [],
+  warnings: [],
 };
 
 /** PineJS `linestyle`: 0 solid, 1 dotted, 2 dashed. */
@@ -67,6 +69,7 @@ function failedRun(name: string, error: string, inputs: PineInput[] = []): PineR
     visuals: [],
     inputs,
     missingStd: [],
+    warnings: [],
   };
 }
 
@@ -110,7 +113,18 @@ export function compilePine(options: PineCompileOptions): PineProgram {
   const indicatorId = options.id ?? DEFAULT_ID;
   // Primitive `method` calls carry no prototype, so call sites are lowered to
   // plain function calls before the transpiler sees them.
-  const source = rewritePrimitiveMethods(options.source);
+  const rewritten = rewritePrimitiveMethods(options.source);
+  // The transpiler's `request.security` returns the chart's own value for any
+  // symbol or timeframe, which is silently wrong; neutralize it and tell the
+  // caller what the script asked for.
+  const { source, calls: securityCalls } = neutralizeSecurity(rewritten);
+  const warnings = securityCalls.length
+    ? [
+        `request.security is not supported yet (${securityCalls
+          .map((call) => `${call.symbol} ${call.timeframe}`)
+          .join(', ')}); its values are na`,
+      ]
+    : [];
   const transpiled = transpileToPineJS(source, indicatorId, name);
 
   if (!transpiled.success || !transpiled.indicatorFactory) {
@@ -157,6 +171,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
     overlay: metainfo.is_price_study === true,
     inputs: declaredInputs,
     plots: plotMetaList,
+    warnings,
   };
 
   return {
@@ -237,6 +252,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
               visuals,
               inputs: declaredInputs,
               missingStd: [...missing].sort(),
+              warnings,
             };
           }
           const values = output as unknown[];
@@ -255,6 +271,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           visuals,
           inputs: declaredInputs,
           missingStd: [...missing].sort(),
+              warnings,
         };
       } catch (cause) {
         return {
@@ -266,6 +283,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           visuals: [],
           inputs: declaredInputs,
           missingStd: [...missing].sort(),
+              warnings,
         };
       }
     },

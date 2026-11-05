@@ -50,6 +50,8 @@ export interface PineScriptMeta {
   overlay: boolean;
   inputs: PineInput[];
   plots: PinePlotMeta[];
+  /** Source-level limitations found at compile time. */
+  warnings: string[];
 }
 
 export interface PineCompileOptions {
@@ -78,6 +80,8 @@ export interface PineRunResult {
   plots: PinePlot[];
   visuals: PineVisualEvent[];
   inputs: PineInput[];
+  /** Source-level limitations found at compile time. */
+  warnings: string[];
   /**
    * Standard-library names the shim had to stub because OakScriptJS has no
    * matching function. An empty list means the script ran with full coverage.
