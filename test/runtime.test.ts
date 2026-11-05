@@ -143,6 +143,38 @@ plot(ph.is_not_na() ? 1 : 0)`,
     expect(result.plots[0]!.values.some((value) => value === 1)).toBe(true);
   });
 
+  it('treats a drawing handle as not na so guarded setters run', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Box", overlay=true)
+var box b = na
+if bar_index == 1
+    b := box.new(bar_index, high, bar_index + 2, low)
+if not na(b)
+    box.set_right(b, bar_index + 5)`,
+      bars: bars(20),
+      timeframe: '60',
+    });
+
+    expect(result.ok).toBe(true);
+    const setters = result.visuals.filter((event) => event.call === 'box.set_right');
+    expect(setters.length).toBeGreaterThan(0);
+  });
+
+  it('keeps `na` true for a missing number', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Na")
+value = close > 0 ? na : 1
+plot(na(value) ? 1 : 0)`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.some((value) => value === 1)).toBe(true);
+  });
+
   it('reports a transpile error instead of throwing', () => {
     const result = runPineScript({ source: '@@@', bars: bars(10) });
 

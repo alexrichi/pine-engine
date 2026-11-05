@@ -168,9 +168,18 @@ export function createStd(options: StdOptions): Record<string, unknown> {
 
     gt: (a: unknown, b: unknown) => numberValue(a) > numberValue(b),
     lt: (a: unknown, b: unknown) => numberValue(a) < numberValue(b),
-    na: (value: unknown) => !Number.isFinite(numberValue(value)),
-    nz: (value: unknown, replacement = 0) =>
-      Number.isFinite(numberValue(value)) ? numberValue(value) : numberValue(replacement),
+    // Pine's `na` is a missing number/string/bool, not a missing object: a
+    // drawing handle is never `na`, or `if not na(box)` guards would never run.
+    na: (value: unknown) => {
+      if (value === null || value === undefined) return true;
+      if (typeof value === 'number') return !Number.isFinite(value);
+      return false;
+    },
+    nz: (value: unknown, replacement = 0) => {
+      if (value === null || value === undefined) return numberValue(replacement);
+      if (typeof value === 'number') return Number.isFinite(value) ? value : numberValue(replacement);
+      return value;
+    },
 
     year: (time: number) => new Date(time).getUTCFullYear(),
     month: (time: number) => new Date(time).getUTCMonth() + 1,
