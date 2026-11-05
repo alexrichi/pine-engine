@@ -1,18 +1,18 @@
-import {
-  extractMetadata,
-  parse,
+﻿import {
   transpileToPineJS,
   type IndicatorFactory,
-  type ParsedPlot,
 } from '@opus-aether-ai/pine-transpiler';
 import { createStd, createStdProxy } from './std';
+import { rewritePrimitiveMethods } from './methods';
 import { Series, numberValue, type PineContext } from './series';
 import { timeframeMinutes, timeframeMs } from './timeframe';
 import type {
   PineBar,
   PineCompileOptions,
   PineInput,
+  PineLineStyle,
   PinePlot,
+  PinePlotMeta,
   PineProgram,
   PineRunBars,
   PineRunResult,
@@ -26,6 +26,15 @@ type Instance = InstanceType<CustomIndicator['constructor']>;
 type MainContext = Parameters<Instance['main']>[0];
 type InputCallback = Parameters<Instance['main']>[1];
 
+interface PlotStyleMeta {
+  linestyle: number;
+  visible?: boolean;
+  linewidth: number;
+  plottype?: number | string;
+  color: string;
+  transparency?: number;
+}
+
 export const DEFAULT_ID = 'pine-engine';
 
 const EMPTY_META: PineScriptMeta = {
@@ -33,6 +42,19 @@ const EMPTY_META: PineScriptMeta = {
   overlay: false,
   inputs: [],
   plots: [],
+};
+
+/** PineJS `linestyle`: 0 solid, 1 dotted, 2 dashed. */
+const LINE_STYLES: Record<number, PineLineStyle> = {
+  0: 'solid',
+  1: 'dotted',
+  2: 'dashed',
+};
+
+/** PineJS `plottype`: 0 line, 1 histogram; every other value is already a name. */
+const PLOT_TYPES: Record<number, string> = {
+  0: 'line',
+  1: 'histogram',
 };
 
 function failedRun(name: string, error: string, inputs: PineInput[] = []): PineRunResult {
@@ -48,22 +70,34 @@ function failedRun(name: string, error: string, inputs: PineInput[] = []): PineR
   };
 }
 
+function transparencyOf(style: PlotStyleMeta | undefined): number | undefined {
+  const value = style?.transparency;
+  return typeof value === 'number' && value > 0 ? value : undefined;
+}
+
 /**
- * Plot titles live only in the parsed AST: the indicator metainfo carries ids
- * and styles, not labels. A failure here is not fatal, ids stay as titles.
+ * Plot metadata from the indicator metainfo: `styles` carries the titles and
+ * `defaults.styles` the resolved color, width and line style.
  */
-function plotTitles(source: string): Map<string, string> {
-  const titles = new Map<string, string>();
-  try {
-    const ast = parse(source) as unknown as Parameters<typeof extractMetadata>[0];
-    const metadata = extractMetadata(ast) as unknown as { plots?: ParsedPlot[] };
-    for (const plot of metadata.plots ?? []) {
-      if (plot.id && plot.title) titles.set(plot.id, plot.title);
-    }
-  } catch {
-    // Titles are cosmetic; the ids still identify the columns.
-  }
-  return titles;
+function plotMeta(
+  plots: readonly { id: string; type?: string }[] | undefined,
+  styles: Record<string, { title?: string }> | undefined,
+  defaults: Record<string, PlotStyleMeta> | undefined,
+): PinePlotMeta[] {
+  return (plots ?? []).map((plot) => {
+    const id = String(plot.id);
+    const style = defaults?.[id];
+    const type = String(plot.type ?? 'line');
+    return {
+      id,
+      title: String(styles?.[id]?.title ?? id),
+      type: PLOT_TYPES[Number(style?.plottype ?? type)] ?? type,
+      color: style?.color,
+      width: style?.linewidth,
+      lineStyle: style ? LINE_STYLES[style.linestyle] ?? 'solid' : undefined,
+      transparency: transparencyOf(style),
+    };
+  });
 }
 
 /**
@@ -74,7 +108,10 @@ function plotTitles(source: string): Map<string, string> {
 export function compilePine(options: PineCompileOptions): PineProgram {
   const name = options.name ?? 'Pine';
   const indicatorId = options.id ?? DEFAULT_ID;
-  const transpiled = transpileToPineJS(options.source, indicatorId, name);
+  // Primitive `method` calls carry no prototype, so call sites are lowered to
+  // plain function calls before the transpiler sees them.
+  const source = rewritePrimitiveMethods(options.source);
+  const transpiled = transpileToPineJS(source, indicatorId, name);
 
   if (!transpiled.success || !transpiled.indicatorFactory) {
     const error = transpiled.error ?? 'The script could not be transpiled';
@@ -87,7 +124,6 @@ export function compilePine(options: PineCompileOptions): PineProgram {
   }
 
   const factory = transpiled.indicatorFactory;
-  const titles = plotTitles(options.source);
 
   // The factory binds `Std` at construction time, so metainfo is read once
   // through an inert library and each run builds its own bound factory.
@@ -102,31 +138,31 @@ export function compilePine(options: PineCompileOptions): PineProgram {
   const declaredInputs = (metainfo.inputs ?? []) as PineInput[];
   const defaults = (metainfo.defaults?.inputs ?? {}) as Record<string, unknown>;
 
-  const inputValues = declaredInputs.map((input) => {
+  const compileInputs = declaredInputs.map((input) => {
     const override = options.inputs?.[input.id];
     if (override !== undefined) return override;
     const declared = defaults[input.id];
     return declared !== undefined ? declared : input.defval;
   });
-  const inputCallback = ((index: number) => inputValues[index] ?? 0) as unknown as InputCallback;
 
-  const plotMeta = (metainfo.plots ?? []).map((plot) => ({
-    id: String(plot.id),
-    title: titles.get(String(plot.id)) ?? String(plot.id),
-    type: String(plot.type ?? 'line'),
-  }));
+  const plotMetaList = plotMeta(
+    metainfo.plots as readonly { id: string; type?: string }[] | undefined,
+    metainfo.styles as Record<string, { title?: string }> | undefined,
+    metainfo.defaults?.styles as Record<string, PlotStyleMeta> | undefined,
+  );
 
   const meta: PineScriptMeta = {
-    name,
+    name: String(metainfo.description ?? name),
+    shortName: metainfo.shortDescription ? String(metainfo.shortDescription) : undefined,
     overlay: metainfo.is_price_study === true,
     inputs: declaredInputs,
-    plots: plotMeta,
+    plots: plotMetaList,
   };
 
   return {
     ok: true,
     meta,
-    run({ bars, timeframe = '', symbol }: PineRunBars): PineRunResult {
+    run({ bars, timeframe = '', symbol, inputs }: PineRunBars): PineRunResult {
       const minutes = timeframeMinutes(timeframe);
       const missing = new Set<string>();
       const context: PineContext = {
@@ -159,6 +195,16 @@ export function compilePine(options: PineCompileOptions): PineProgram {
         },
       };
 
+      const inputValues = inputs
+        ? declaredInputs.map((input) => {
+            const override = inputs[input.id];
+            if (override !== undefined) return override;
+            return compileInputs[declaredInputs.indexOf(input)] ?? input.defval;
+          })
+        : compileInputs;
+      const inputCallback = ((index: number) =>
+        inputValues[index] ?? 0) as unknown as InputCallback;
+
       const std = createStd({
         bars,
         context,
@@ -174,7 +220,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
         } as unknown as Parameters<Factory>[0]);
         const instance = new indicator.constructor();
 
-        const plots: PinePlot[] = plotMeta.map((plot) => ({ ...plot, values: [] }));
+        const plots: PinePlot[] = plotMetaList.map((plot) => ({ ...plot, values: [] }));
         const visuals: PineVisualEvent[] = [];
 
         for (let bar = 0; bar < bars.length; bar += 1) {
@@ -185,7 +231,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
             return {
               ok: false,
               error: 'The transpiled script returned no plot array',
-              name,
+              name: meta.name,
               overlay: meta.overlay,
               plots: [],
               visuals,
@@ -203,7 +249,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
 
         return {
           ok: true,
-          name,
+          name: meta.name,
           overlay: meta.overlay,
           plots,
           visuals,
@@ -214,7 +260,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
         return {
           ok: false,
           error: cause instanceof Error ? cause.message : String(cause),
-          name,
+          name: meta.name,
           overlay: meta.overlay,
           plots: [],
           visuals: [],

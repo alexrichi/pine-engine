@@ -8,11 +8,19 @@ export interface PineBar {
   volume: number;
 }
 
+export type PineLineStyle = 'solid' | 'dashed' | 'dotted';
+
 export interface PinePlotMeta {
   id: string;
   title: string;
-  /** PineJS plot type: `line`, `histogram`, `column`, `area`, `shape`, `hline`. */
+  /** PineJS plot type: `line`, `histogram`, `circles`, `area`, `stepline`, `cross`. */
   type: string;
+  /** Hex color from the plot declaration, including the engine default. */
+  color?: string;
+  width?: number;
+  lineStyle?: PineLineStyle;
+  /** 0-100, from `color.new()`. */
+  transparency?: number;
 }
 
 export interface PinePlot extends PinePlotMeta {
@@ -37,6 +45,7 @@ export interface PineInput {
 
 export interface PineScriptMeta {
   name: string;
+  shortName?: string;
   /** `indicator(..., overlay = true)`: draw over the price scale. */
   overlay: boolean;
   inputs: PineInput[];
@@ -57,6 +66,8 @@ export interface PineRunBars {
   /** Canonical timeframe key: `1`, `5`, `60`, `D`, `W`, `M`. */
   timeframe?: string;
   symbol?: string;
+  /** Input overrides for this run; they win over the compile-time values. */
+  inputs?: Record<string, number | boolean | string>;
 }
 
 export interface PineRunResult {

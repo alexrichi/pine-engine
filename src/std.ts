@@ -1,5 +1,5 @@
 import { taCore } from 'oakscriptjs';
-import { numberValue, seriesOf, type PineContext } from './series';
+import { last, numberValue, Series, seriesOf, type PineContext } from './series';
 import type { PineBar } from './types';
 
 export interface StdOptions {
@@ -23,6 +23,32 @@ function trueRange(bars: readonly PineBar[], index: number): number {
     Math.abs(bar.high - previous.close),
     Math.abs(bar.low - previous.close),
   );
+}
+
+/**
+ * `ta.pivothigh/pivotlow` accept both the two-argument form (the chart's highs
+ * or lows) and the three-argument form with an explicit source. The transpiler
+ * appends the runtime context, which is dropped here.
+ */
+function pivotArgs(
+  args: unknown[],
+  _kind: 'high' | 'low',
+  series: number[],
+): [number[], number, number] {
+  const values = [...args];
+  const last2 = values[values.length - 1] as { new_var?: unknown } | undefined;
+  if (last2 && typeof last2 === 'object' && typeof last2.new_var === 'function') values.pop();
+  // PineJS boxes scalar arguments in a series, so unwrap them before use.
+  const scalar = (value: unknown): number =>
+    value instanceof Series ? last(value.values) : numberValue(value);
+  if (values.length >= 3) {
+    return [
+      seriesOf(values[0]).values,
+      Math.trunc(scalar(values[1])),
+      Math.trunc(scalar(values[2])),
+    ];
+  }
+  return [series, Math.trunc(scalar(values[0])), Math.trunc(scalar(values[1]))];
 }
 
 /**
@@ -85,6 +111,31 @@ export function createStd(options: StdOptions): Record<string, unknown> {
       last(taCore.ema(seriesOf(value).values, Math.trunc(length))),
     rsi: (value: unknown, length: number) =>
       last(taCore.rsi(seriesOf(value).values, Math.trunc(length))),
+    wma: (value: unknown, length: number) =>
+      last(taCore.wma(seriesOf(value).values, Math.trunc(length))),
+    highest: (value: unknown, length: number) =>
+      last(taCore.highest(seriesOf(value).values, Math.trunc(length))),
+    lowest: (value: unknown, length: number) =>
+      last(taCore.lowest(seriesOf(value).values, Math.trunc(length))),
+    stdev: (value: unknown, length: number) =>
+      last(taCore.stdev(seriesOf(value).values, Math.trunc(length))),
+    cum: (value: unknown) => last(taCore.cum(seriesOf(value).values)),
+    valuewhen: (condition: unknown, value: unknown, occurrence: number) =>
+      last(
+        taCore.valuewhen(
+          seriesOf(condition).values as unknown as boolean[],
+          seriesOf(value).values,
+          Math.trunc(occurrence),
+        ),
+      ),
+    pivothigh: (...args: unknown[]) => {
+      const [source, left, right] = pivotArgs(args, 'high', highs());
+      return last(taCore.pivothigh(source, left, right));
+    },
+    pivotlow: (...args: unknown[]) => {
+      const [source, left, right] = pivotArgs(args, 'low', lows());
+      return last(taCore.pivotlow(source, left, right));
+    },
     change: (value: unknown, lengthOrContext: unknown = 1) =>
       last(
         taCore.change(

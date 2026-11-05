@@ -5,6 +5,7 @@ export type {
   PineBar,
   PineCompileOptions,
   PineInput,
+  PineLineStyle,
   PinePlot,
   PinePlotMeta,
   PineProgram,

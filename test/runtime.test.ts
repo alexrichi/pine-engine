@@ -96,6 +96,8 @@ describe('runPineScript', () => {
       'Oversold',
       'Overbought',
     ]);
+    expect(program.meta.plots[0]!.color).toBeTruthy();
+    expect(program.meta.plots[0]!.type).toBe('line');
 
     const first = program.run({ bars: bars(120), timeframe: '60', symbol: 'AAA' });
     const second = program.run({ bars: bars(80), timeframe: '60', symbol: 'BBB' });
@@ -123,6 +125,22 @@ if barstate.islast
     expect(line).toBeDefined();
     expect(line!.args).toHaveLength(4);
     expect(line!.barIndex).toBe(29);
+  });
+
+  it('runs a primitive method declared with `method`', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Pivot")
+method is_not_na(float val) => not na(val)
+ph = ta.pivothigh(2, 2)
+plot(ph.is_not_na() ? 1 : 0)`,
+      bars: bars(40),
+      timeframe: '60',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    expect(result.plots[0]!.values.some((value) => value === 1)).toBe(true);
   });
 
   it('reports a transpile error instead of throwing', () => {
