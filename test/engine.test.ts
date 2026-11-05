@@ -455,6 +455,31 @@ plot(ta.sar(0.02, 0.02, 0.2), "sar")`,
     }
   });
 
+  it('runs the remaining reference TA functions', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Reference TA")
+plot(ta.bbw(close, 5, 4), "bbw")
+plot(ta.kcw(close, 5, 4, true), "kcw")
+plot(ta.cog(close, 10), "cog")
+plot(ta.max(close), "max")
+plot(ta.min(close), "min")
+plot(ta.mode(close, 10), "mode")
+plot(ta.range(close, 10), "range")
+plot(ta.rci(close, 10), "rci")
+plot(ta.cross(ta.sma(close, 3), ta.sma(close, 7)) ? 1 : 0, "cross")`,
+      bars: bars(120),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    for (const plot of result.plots) {
+      expect(Number.isFinite(plot.values.at(-1))).toBe(true);
+    }
+    expect(result.plots[7]!.values.at(-1)).toBeGreaterThanOrEqual(-100);
+    expect(result.plots[7]!.values.at(-1)).toBeLessThanOrEqual(100);
+  });
+
   it('returns a runtime error instead of throwing', () => {
     const result = runPineScript({
       source: `//@version=6
@@ -473,6 +498,23 @@ runtime.error("boom")`,
 indicator("Series compare")
 x = close
 plot(x == close[0] ? 1 : 0, "same")`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(1);
+  });
+
+  it('accepts keyword argument names and comparison statements', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Syntax")
+f() =>
+    n1 = 1
+    n2 = 2
+    n1 < n2
+plotshape(series = close > 0 ? 1 : na, title="x", style=shape.triangleup)
+plot(f() ? 1 : 0, "f")`,
       bars: bars(10),
       timeframe: '60',
     });

@@ -10,8 +10,10 @@ export interface TimeframeInfo {
   isdaily: boolean;
   isweekly: boolean;
   ismonthly: boolean;
+  isseconds: boolean;
   in_seconds: (tf?: string) => number;
   inSeconds: (tf?: string) => number;
+  change: (tf?: string) => boolean;
 }
 
 /**
@@ -71,11 +73,15 @@ export function createTimeframe(periodStr?: string): TimeframeInfo {
     isdaily: period === 'D',
     isweekly: period === 'W',
     ismonthly: period === 'M',
+    isseconds: /S$/i.test(period),
     in_seconds(tf?: string): number {
       return inSeconds(tf ?? period);
     },
     inSeconds(tf?: string): number {
       return inSeconds(tf ?? period);
+    },
+    change(_tf?: string): boolean {
+      return false;
     },
   };
 }

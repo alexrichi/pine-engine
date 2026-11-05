@@ -500,8 +500,16 @@ export class Parser {
         const saved = this.pos;
         try {
           const ann = this.parseTypeAnnotation();
-          // Accept IDENTIFIER or contextual keywords that can be param names (e.g. 'by')
-          if (this.check(TokenType.IDENTIFIER) || this.check(TokenType.BY)) {
+          // Accept IDENTIFIER or contextual/type keywords as param names.
+          const isParamName =
+            this.check(TokenType.IDENTIFIER) ||
+            this.check(TokenType.BY) ||
+            this.check(TokenType.COLOR_TYPE) ||
+            this.check(TokenType.FLOAT_TYPE) ||
+            this.check(TokenType.INT) ||
+            this.check(TokenType.BOOL_TYPE) ||
+            this.check(TokenType.STRING_TYPE);
+          if (isParamName) {
             typeAnnotation = ann;
           } else {
             this.pos = saved;
@@ -598,6 +606,11 @@ export class Parser {
     while (!this.check(TokenType.DEDENT) && !this.isAtEnd()) {
       this.skipNewlines();
       if (this.check(TokenType.DEDENT)) break;
+      if (this.check(TokenType.ANNOTATION)) {
+        this.parseAnnotation();
+        this.skipNewlines();
+        continue;
+      }
       const typeAnn = this.parseTypeAnnotation();
       const fieldName = this.expect(TokenType.IDENTIFIER, 'Expected field name');
       let defaultValue: Expression | null = null;
@@ -626,6 +639,11 @@ export class Parser {
     while (!this.check(TokenType.DEDENT) && !this.isAtEnd()) {
       this.skipNewlines();
       if (this.check(TokenType.DEDENT)) break;
+      if (this.check(TokenType.ANNOTATION)) {
+        this.parseAnnotation();
+        this.skipNewlines();
+        continue;
+      }
       const memberTok = this.expect(TokenType.IDENTIFIER, 'Expected enum member');
       members.push(memberTok.value);
       this.consumeNewline();
@@ -945,22 +963,50 @@ export class Parser {
       else if (token.type === TokenType.GT) {
         depth--;
         if (depth === 0) return this.peekAt(index + 1).type === TokenType.LPAREN;
-      } else if (!(
-        token.type === TokenType.IDENTIFIER ||
-        token.type === TokenType.INT ||
-        token.type === TokenType.FLOAT_TYPE ||
-        token.type === TokenType.BOOL_TYPE ||
-        token.type === TokenType.STRING_TYPE ||
-        token.type === TokenType.COLOR_TYPE ||
-        token.type === TokenType.COMMA ||
-        token.type === TokenType.LBRACKET ||
-        token.type === TokenType.RBRACKET
-      )) {
+      } else if (!this.isTypeToken(token.type)) {
         return false;
       }
       index++;
     }
     return false;
+  }
+
+  /** Does `<...>` at the cursor look like `array<float> name`? */
+  private looksLikeGenericType(): boolean {
+    let index = 2;
+    let depth = 1;
+    while (index < 32) {
+      const token = this.peekAt(index);
+      if (token.type === TokenType.EOF) return false;
+      if (token.type === TokenType.LT) depth++;
+      else if (token.type === TokenType.GT) {
+        depth--;
+        if (depth === 0) return this.peekAt(index + 1).type === TokenType.IDENTIFIER;
+      } else if (!this.isTypeToken(token.type)) {
+        return false;
+      }
+      index++;
+    }
+    return false;
+  }
+
+  private isTypeToken(type: TokenType): boolean {
+    return (
+      type === TokenType.IDENTIFIER ||
+      type === TokenType.INT ||
+      type === TokenType.FLOAT_TYPE ||
+      type === TokenType.BOOL_TYPE ||
+      type === TokenType.STRING_TYPE ||
+      type === TokenType.COLOR_TYPE ||
+      type === TokenType.SERIES ||
+      type === TokenType.SIMPLE ||
+      type === TokenType.CONST ||
+      type === TokenType.COMMA ||
+      type === TokenType.LBRACKET ||
+      type === TokenType.RBRACKET ||
+      type === TokenType.LT ||
+      type === TokenType.GT
+    );
   }
 
   private skipCallTypeArgs(): void {
@@ -1043,6 +1089,9 @@ export class Parser {
         this.check(TokenType.FLOAT_TYPE) ||
         this.check(TokenType.BOOL_TYPE) ||
         this.check(TokenType.STRING_TYPE) ||
+        this.check(TokenType.SERIES) ||
+        this.check(TokenType.SIMPLE) ||
+        this.check(TokenType.CONST) ||
         this.check(TokenType.INPUT)
       ) && this.peekAt(1).type === TokenType.ASSIGN;
       if (isNamedArgStart) {
@@ -1260,7 +1309,7 @@ export class Parser {
       // Also handle array types: line[] myVar, MyType[] arr
       const next = this.peekAt(1);
       if (next.type === TokenType.IDENTIFIER) return true;
-      if (next.type === TokenType.LT) return true;
+      if (next.type === TokenType.LT && this.looksLikeGenericType()) return true;
       if (next.type === TokenType.LBRACKET && this.peekAt(2).type === TokenType.RBRACKET) return true;
     }
     return false;

@@ -1,6 +1,22 @@
 import { Series } from '../types/series';
 import { NA, isNa } from '../types/na';
 
+function rankValues(values: number[]): number[] {
+  const order = values
+    .map((value, index) => ({ value, index }))
+    .sort((a, b) => a.value - b.value || a.index - b.index);
+  const ranks = new Array<number>(values.length);
+  let i = 0;
+  while (i < order.length) {
+    let j = i;
+    while (j + 1 < order.length && order[j + 1]!.value === order[i]!.value) j++;
+    const rank = (i + j + 2) / 2; // average 1-based rank
+    for (let k = i; k <= j; k++) ranks[order[k]!.index] = rank;
+    i = j + 1;
+  }
+  return ranks;
+}
+
 function calcSma(source: Series<number>, length: number): number {
   if (source.length < length) return NA as unknown as number;
   let sum = 0;
@@ -91,6 +107,15 @@ export interface TaModule {
   vwap(source?: Series<number>, anchor?: string, stdevMult?: number, id?: string): number | [number, number, number];
   wpr(length: number): number;
   sar(start?: number, increment?: number, maximum?: number, id?: string): number;
+  bbw(source: Series<number>, length: number, mult: number): number;
+  kcw(source: Series<number>, length: number, mult: number, useTrueRange?: boolean, id?: string): number;
+  cog(source: Series<number>, length: number): number;
+  cross(a: Series<number> | number, b: Series<number> | number): boolean;
+  max(source: Series<number>, id?: string): number;
+  min(source: Series<number>, id?: string): number;
+  mode(source: Series<number>, length: number): number;
+  range(source: Series<number>, length: number): number;
+  rci(source: Series<number>, length: number): number;
 }
 
 export function createTaModule(
@@ -148,6 +173,7 @@ export function createTaModule(
     up: boolean;
     prevBarIndex: number;
   }>();
+  const extremeState = new Map<string, { high: number; low: number; prevBarIndex: number }>();
 
   // A TA source can be a builtin series or a plain value produced by another
   // expression (`ta.ema(fast, 9)`, `ta.highest(close - open, 10)`). Plain
@@ -1574,12 +1600,147 @@ export function createTaModule(
       state.prevBarIndex = bar;
       return sar;
     },
+
+    bbw(source: Series<number>, length: number, mult: number): number {
+      const [basis, upper, lower] = this.bb(source, length, mult);
+      if (isNa(basis) || isNa(upper) || isNa(lower) || basis === 0) return NA as unknown as number;
+      return (((upper as number) - (lower as number)) / (basis as number)) * 100;
+    },
+
+    kcw(
+      source: Series<number>,
+      length: number,
+      mult: number,
+      useTrueRange: boolean = true,
+      id: string = 'default_kcw',
+    ): number {
+      const [upper, basis, lower] = this.kc(source, length, mult, useTrueRange, id + '_kc');
+      if (isNa(basis) || isNa(upper) || isNa(lower) || basis === 0) return NA as unknown as number;
+      return ((upper as number) - (lower as number)) / (basis as number);
+    },
+
+    cog(source: Series<number>, length: number): number {
+      if (source.length < length) return NA as unknown as number;
+      let sum = 0;
+      let weighted = 0;
+      for (let i = 0; i < length; i++) {
+        const value = source.get(i);
+        if (isNa(value)) return NA as unknown as number;
+        sum += value as number;
+        weighted += (value as number) * (i + 1);
+      }
+      if (sum === 0) return NA as unknown as number;
+      return -weighted / sum;
+    },
+
+    cross(a: Series<number> | number, b: Series<number> | number): boolean {
+      const asSeries = (value: Series<number> | number): Series<number> => {
+        if (value instanceof Series) return value;
+        const series = new Series<number>(2);
+        series.push(value);
+        return series;
+      };
+      const left = asSeries(a);
+      const right = asSeries(b);
+      const a0 = left.get(0);
+      const a1 = left.get(1);
+      const b0 = right.get(0);
+      const b1 = right.get(1);
+      if (isNa(a0) || isNa(a1) || isNa(b0) || isNa(b1)) return false;
+      return (
+        ((a0 as number) > (b0 as number) && (a1 as number) <= (b1 as number)) ||
+        ((a0 as number) < (b0 as number) && (a1 as number) >= (b1 as number))
+      );
+    },
+
+    max(source: Series<number>, id: string = 'default_max'): number {
+      const bar = getCurrentBarIndex();
+      let state = extremeState.get(id);
+      if (!state || state.prevBarIndex !== bar - 1) {
+        state = { high: NA as unknown as number, low: NA as unknown as number, prevBarIndex: bar - 1 };
+        extremeState.set(id, state);
+      }
+      const value = source.get(0);
+      if (!isNa(value)) {
+        state.high = isNa(state.high) ? (value as number) : Math.max(state.high, value as number);
+      }
+      state.prevBarIndex = bar;
+      return state.high;
+    },
+
+    min(source: Series<number>, id: string = 'default_min'): number {
+      const bar = getCurrentBarIndex();
+      let state = extremeState.get(id);
+      if (!state || state.prevBarIndex !== bar - 1) {
+        state = { high: NA as unknown as number, low: NA as unknown as number, prevBarIndex: bar - 1 };
+        extremeState.set(id, state);
+      }
+      const value = source.get(0);
+      if (!isNa(value)) {
+        state.low = isNa(state.low) ? (value as number) : Math.min(state.low, value as number);
+      }
+      state.prevBarIndex = bar;
+      return state.low;
+    },
+
+    mode(source: Series<number>, length: number): number {
+      if (source.length < length) return NA as unknown as number;
+      const counts = new Map<number, number>();
+      for (let i = 0; i < length; i++) {
+        const value = source.get(i);
+        if (isNa(value)) continue;
+        counts.set(value as number, (counts.get(value as number) ?? 0) + 1);
+      }
+      let best = NA as unknown as number;
+      let bestCount = 0;
+      for (const [value, count] of counts) {
+        if (count > bestCount || (count === bestCount && (isNa(best) || value < best))) {
+          best = value;
+          bestCount = count;
+        }
+      }
+      return best;
+    },
+
+    range(source: Series<number>, length: number): number {
+      if (source.length < length) return NA as unknown as number;
+      let high = -Infinity;
+      let low = Infinity;
+      for (let i = 0; i < length; i++) {
+        const value = source.get(i);
+        if (isNa(value)) continue;
+        if ((value as number) > high) high = value as number;
+        if ((value as number) < low) low = value as number;
+      }
+      if (high === -Infinity || low === Infinity) return NA as unknown as number;
+      return high - low;
+    },
+
+    rci(source: Series<number>, length: number): number {
+      if (source.length < length) return NA as unknown as number;
+      const values: number[] = [];
+      for (let i = length - 1; i >= 0; i--) {
+        const value = source.get(i);
+        if (isNa(value)) return NA as unknown as number;
+        values.push(value as number);
+      }
+      const ranks = rankValues(values);
+      let sumSquared = 0;
+      for (let i = 0; i < length; i++) {
+        const diff = ranks[i]! - (i + 1);
+        sumSquared += diff * diff;
+      }
+      const denominator = length * (length * length - 1);
+      if (denominator === 0) return NA as unknown as number;
+      return (1 - (6 * sumSquared) / denominator) * 100;
+    },
   };
 
   // Functions whose result depends on the previous bar.
   const STATEFUL = new Set([
     'ema', 'rsi', 'macd', 'atr', 'rma', 'cum', 'valuewhen', 'barssince',
     'dmi', 'mfi', 'obv', 'supertrend', 'hma', 'kc', 'vwap', 'sar',
+    'kcw', 'max', 'min',
   ]);
 
   // Arguments that Pine treats as a series. Each is recorded per call site so
@@ -1590,7 +1751,8 @@ export function createTaModule(
     change: [0], highest: [0], lowest: [0], highestbars: [0], lowestbars: [0],
     mom: [0], cci: [0], dev: [0], percentrank: [0], falling: [0], rising: [0],
     hma: [0], kc: [0], linreg: [0], median: [0], mfi: [0],
-    roc: [0], vwap: [0],
+    roc: [0], vwap: [0], bbw: [0], kcw: [0], cog: [0], cross: [0, 1],
+    max: [0], min: [0], mode: [0], range: [0], rci: [0],
     valuewhen: [1], correlation: [0, 1], stoch: [0, 1, 2],
     pivothigh: 'pivot', pivotlow: 'pivot',
   };
@@ -1622,7 +1784,7 @@ export function createTaModule(
       if (name === 'obv') {
         return fn.call(ta, args[0], args[1], id);
       }
-      if (name === 'kc') {
+      if (name === 'kc' || name === 'kcw') {
         return fn.call(ta, args[0], args[1], args[2], args[3], id);
       }
       if (name === 'vwap') {

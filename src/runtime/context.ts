@@ -60,6 +60,12 @@ export interface RuntimeContext {
   matrix: typeof matrixModule;
   syminfo: SymInfo;
   timeframe: TimeframeInfo;
+  chart: {
+    bg_color: string;
+    fg_color: string;
+    border_color: string;
+    text_color: string;
+  };
 
   // Drawing object modules
   line: ReturnType<typeof createLineModule>;
@@ -88,6 +94,7 @@ export interface RuntimeContext {
   ticker: {
     new: (...args: any[]) => string;
     standard: (symbol: unknown) => string;
+    modify: (symbol: unknown, ...args: unknown[]) => string;
   };
 
   // Session module
@@ -128,6 +135,7 @@ export interface RuntimeContext {
   scalar(value: unknown): unknown;
   /** `time(timeframe, session, timezone)` differs from the `time` variable. */
   timeCall(timeframe?: string, session?: string, timezone?: string): number;
+  timeCloseCall(timeframe?: string, session?: string, timezone?: string): number;
   toInt(value: unknown): number;
   toFloat(value: unknown): number;
   toBool(value: unknown): number | boolean;
@@ -317,6 +325,12 @@ export function createContext(
       ticker: symbol.includes(':') ? symbol.split(':').pop()! : symbol,
     }),
     timeframe: createTimeframe(timeframePeriod),
+    chart: {
+      bg_color: '#131722',
+      fg_color: '#d1d4dc',
+      border_color: '#2a2e39',
+      text_color: '#d1d4dc',
+    },
 
     // Drawing objects
     line: lineModule,
@@ -347,6 +361,9 @@ export function createContext(
         return args.length >= 2 ? `${args[0]}:${args[1]}` : String(args[0] ?? '');
       },
       standard(symbol: unknown): string {
+        return String(symbol ?? '');
+      },
+      modify(symbol: unknown, ..._args: unknown[]): string {
         return String(symbol ?? '');
       },
     },
@@ -608,6 +625,11 @@ export function createContext(
       return typeof result === 'number' ? result : NA;
     },
 
+    timeCloseCall(timeframe?: string, session?: string, timezone?: string): number {
+      const open = this.timeCall(timeframe, session, timezone);
+      return isNa(open) ? NA : open + barMs;
+    },
+
     toInt(value: unknown): number {
       const number = Number(value instanceof Series ? value.get(0) : value);
       return Number.isFinite(number) ? Math.trunc(number) : NA;
@@ -675,6 +697,7 @@ export function createContext(
   ctx.strategy = guarded('strategy', ctx.strategy);
   ctx.syminfo = guarded('syminfo', ctx.syminfo);
   ctx.timeframe = guarded('timeframe', ctx.timeframe);
+  ctx.chart = guarded('chart', ctx.chart);
   ctx.ticker = guarded('ticker', ctx.ticker);
   ctx.log = guarded('log', ctx.log);
 

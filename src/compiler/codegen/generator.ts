@@ -28,6 +28,14 @@ const KNOWN_NAMESPACES = new Set([
   'map', 'matrix', 'input', 'chart', 'runtime',
 ]);
 
+/** Array methods that can appear on an arbitrary member expression. */
+const ARRAY_METHODS = new Set([
+  'size', 'get', 'set', 'push', 'pop', 'shift', 'unshift', 'clear', 'remove',
+  'insert', 'sort', 'reverse', 'join', 'slice', 'includes', 'indexof',
+  'lastindexof', 'sum', 'avg', 'max', 'min', 'median', 'stdev', 'variance',
+  'copy', 'concat', 'first', 'last',
+]);
+
 export class CodeGenerator {
   private reporter: DiagnosticReporter;
   private mapper: FunctionMapper;
@@ -640,6 +648,11 @@ export class CodeGenerator {
     out.push(this.indent() + `${typeName}.prototype.${decl.name} = function(${params}) {`);
     this.indentLevel++;
     out.push(this.indent() + 'var self = this;');
+    // Pine lets the receiver parameter keep its own name (`IS`, `Gap`, ...).
+    if (decl.selfName !== 'self' && decl.selfName !== 'this' &&
+        /^[A-Za-z_]\w*$/.test(decl.selfName)) {
+      out.push(this.indent() + `var ${decl.selfName} = this;`);
+    }
     if (Array.isArray(decl.body)) {
       this.generateBody(decl.body, out);
     } else {
@@ -1060,6 +1073,9 @@ export class CodeGenerator {
     if (calleeName === 'time' && call.args.length > 0) {
       return `__rt.timeCall(${this.genArgs(call.args)})`;
     }
+    if (calleeName === 'time_close' && call.args.length > 0) {
+      return `__rt.timeCloseCall(${this.genArgs(call.args)})`;
+    }
 
     // Try to map to runtime
     const mapped = this.mapper.mapFunction(calleeName);
@@ -1114,6 +1130,13 @@ export class CodeGenerator {
     // Method syntax dispatch: obj.method(args) → __rt.{namespace}.{method}(obj, args)
     if (call.callee.kind === 'MemberExpression') {
       const mem = call.callee as MemberExpression;
+      // A field access such as `IS.imbalance.size()` still dispatches to the
+      // array module; only identifier objects carry a tracked type.
+      if (mem.object.kind !== 'IdentifierExpression' && ARRAY_METHODS.has(mem.property)) {
+        const objExpr = this.genExpr(mem.object);
+        const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
+        return `__rt.array.${mem.property}(${objExpr}${argsStr})`;
+      }
       // Only if object is NOT a known namespace
       if (mem.object.kind === 'IdentifierExpression') {
         const objName = (mem.object as IdentifierExpression).name;
@@ -1716,6 +1739,7 @@ export class CodeGenerator {
     // syminfo, timeframe etc
     if (objStr === 'syminfo') return `__rt.syminfo.${prop}`;
     if (objStr === 'timeframe') return `__rt.timeframe.${prop}`;
+    if (objStr === 'chart') return `__rt.chart.${prop}`;
     if (objStr === 'str') return `__rt.str.${prop}`;
     if (objStr === 'array') return `__rt.array.${prop}`;
     if (objStr === 'request') return `__rt.request.${prop}`;
