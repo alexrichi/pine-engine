@@ -156,7 +156,7 @@ method area(Rect self) =>
     const code = compileOk(src);
     expect(code).toContain('Rect.prototype.area = function()');
     expect(code).toContain('var self = this');
-    expect(code).toContain('self.w * self.h');
+    expect(code).toContain('__rt.field(self, "w") * __rt.field(self, "h")');
   });
 
   it('emits prototype method with extra parameters', () => {
@@ -203,7 +203,7 @@ x = t.getValue()
 `;
     const code = compileOk(src);
     // Should be direct call, NOT __rt dispatch
-    expect(code).toContain('t.getValue()');
+    expect(code).toContain('__rt.udtCall(t, "getValue", [])');
     expect(code).not.toContain('__rt.thing.getValue');
     expect(code).not.toContain('__rt.Thing.getValue');
   });
@@ -220,7 +220,7 @@ c = Counter.new()
 c.add(5)
 `;
     const code = compileOk(src);
-    expect(code).toContain('c.add(5)');
+    expect(code).toContain('__rt.udtCall(c, "add", [5])');
     expect(code).not.toContain('__rt.counter.add');
   });
 });
@@ -238,7 +238,7 @@ p = Point.new(x=5.0)
 val = p.x + 1.0
 `;
     const code = compileOk(src);
-    expect(code).toContain('p.x + ');
+    expect(code).toContain('__rt.field(p, "x") + ');
   });
 
   it('generates plain property assignment', () => {
@@ -274,7 +274,7 @@ plot(b.hl2())
     expect(code).toContain('function __udt_Bar(fields)');
     expect(code).toContain('Bar.prototype.hl2 = function()');
     expect(code).toContain('Bar.new({h: __rt.high');
-    expect(code).toContain('b.hl2()');
+    expect(code).toContain('__rt.udtCall(b, "hl2", [])');
     expect(code).toContain('__rt.plot(');
   });
 
@@ -318,8 +318,8 @@ plot(r, "Range")
     expect(code).toContain('function __udt_Candle(fields)');
     expect(code).toContain('__udt_Candle.prototype.range = function()');
     expect(code).toContain('__udt_Candle.prototype.isGreen = function()');
-    expect(code).toContain('c.range()');
-    expect(code).toContain('c.isGreen()');
+    expect(code).toContain('__rt.udtCall(c, "range", [])');
+    expect(code).toContain('__rt.udtCall(c, "isGreen", [])');
   });
 });
 

@@ -136,7 +136,13 @@ export class Lexer {
       const leading = this.peekNonSpace();
       // `=>` starts a switch arm or a function body, not a continuation.
       const leadingArrow = this.source.slice(this.pos).trimStart().startsWith('=>');
-      const leadingOperator = !leadingArrow && leading !== '' && '+-*/%?:<>=&|'.includes(leading);
+      const leadingComma = leading === ',';
+      // Pine continues a line when the continuation is indented by a
+      // non-multiple of four; a tuple destructure at a normal indent is a new
+      // statement even though it starts with `[`.
+      const leadingBracket = (leading === '(' || leading === '[') &&
+        this.peekNextLineIndent() % 4 !== 0;
+      const leadingOperator = !leadingArrow && !leadingComma && leading !== '' && '+-*/%?:<>=&|'.includes(leading);
       const leadingWord = this.peekLeadingWordOperator();
       // `switch` ends its line; the next line starts a case even when the case
       // condition begins with `not`/`and`/`or`. Inside a switch, only a line at
@@ -153,6 +159,8 @@ export class Lexer {
         !afterSwitch &&
         !armStart &&
         (this.depth > 0 ||
+          leadingComma ||
+          leadingBracket ||
           leadingOperator ||
           leadingWord ||
           (!!last &&

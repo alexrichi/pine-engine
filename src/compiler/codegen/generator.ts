@@ -428,6 +428,7 @@ private thisAlias: string | null = null;
     const typeMap: Record<string, string> = {
       'array': 'array', 'line': 'line', 'label': 'label',
       'box': 'box', 'table': 'table', 'map': 'map', 'matrix': 'matrix',
+      'linefill': 'linefill', 'polyline': 'polyline',
     };
     return typeMap[baseType] ?? null;
   }
@@ -861,7 +862,7 @@ private thisAlias: string | null = null;
         out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(targetName)}, ${store});`);
       }
     } else {
-      const lhsStr = this.genExpr(target);
+      const lhsStr = target.kind === 'MemberExpression' ? this.genLValue(target) : this.genExpr(target);
       // `=` is a Pine declaration, not a reassignment (`:=`). Declaring with
       // `var` keeps user names out of the global object: `top`, `length` and
       // similar names are read-only window properties, so a bare assignment
@@ -929,7 +930,7 @@ private thisAlias: string | null = null;
   }
 
   private genForInStatement(stmt: ForInStatement, out: string[]): void {
-    const iter = this.genExpr(stmt.iterable);
+    const iter = `__rt.iterable(${this.genExpr(stmt.iterable)})`;
     const v = stmt.variable;
     if (stmt.indexVariable) {
       // for [index, value] in arr → for (var __idx = 0; __idx < arr.length; __idx++) { var index = __idx; var value = arr[__idx]; ... }
@@ -1371,7 +1372,7 @@ private thisAlias: string | null = null;
           if (objVarType && this.udtTypes.has(objVarType)) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? this.genArgs(call.args) : '';
-            return `${objExpr}.${method}(${argsStr})`;
+            return `__rt.udtCall(${objExpr}, ${JSON.stringify(method)}, [${argsStr}])`;
           }
 
           // Determine the namespace from tracked type or method name
@@ -1394,20 +1395,6 @@ private thisAlias: string | null = null;
               'rows', 'columns', 'add_row', 'add_col', 'remove_row', 'remove_col',
               'transpose', 'reshape', 'row', 'col', 'submatrix',
             ]);
-            const drawingMethods = new Set([
-              'delete', 'set_x1', 'set_y1', 'set_x2', 'set_y2',
-              'set_xy1', 'set_xy2', 'set_xloc', 'set_yloc', 'set_extend',
-              'set_color', 'set_style', 'set_width', 'set_text', 'set_tooltip',
-              'set_textcolor', 'set_size', 'set_textalign',
-              'set_x', 'set_y', 'set_xy',
-              'set_left', 'set_top', 'set_right', 'set_bottom',
-              'set_lefttop', 'set_rightbottom', 'set_bgcolor',
-              'set_border_color', 'set_border_width', 'set_border_style',
-              'set_text_color', 'set_text_size', 'set_text_halign', 'set_text_valign',
-              'get_x1', 'get_y1', 'get_x2', 'get_y2', 'get_price',
-              'get_x', 'get_y', 'get_text',
-              'get_left', 'get_top', 'get_right', 'get_bottom',
-            ]);
             const tableMethods = new Set([
               'cell', 'merge_cells', 'set_position',
               'set_frame_color', 'set_frame_width',
@@ -1427,10 +1414,10 @@ private thisAlias: string | null = null;
             else if (matrixMethods.has(method)) {
               ns = this.varTypes.get(objName) === 'matrix' ? 'matrix' : null;
             }
-            else if (drawingMethods.has(method)) {
+            else if (DRAWING_METHOD_NAMESPACES[method]) {
               // The method name identifies the drawing type when the receiver's
               // type is unknown (array element, function return, ...).
-              ns = DRAWING_METHOD_NAMESPACES[method] ?? null;
+              ns = DRAWING_METHOD_NAMESPACES[method]!;
             }
           }
           if (ns) {
@@ -1445,7 +1432,7 @@ private thisAlias: string | null = null;
           if (this.udtMethods.has(method)) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? this.genArgs(call.args) : '';
-            return `${objExpr}.${method}(${argsStr})`;
+            return `__rt.udtCall(${objExpr}, ${JSON.stringify(method)}, [${argsStr}])`;
           }
         }
       }
@@ -1471,7 +1458,7 @@ private thisAlias: string | null = null;
           return `${fnName(method)}(${objExpr}${argsStr})`;
         }
         if (this.udtMethods.has(method)) {
-          return `${objExpr}.${method}(${argsStr.slice(2)})`;
+          return `__rt.udtCall(${objExpr}, ${JSON.stringify(method)}, [${argsStr.slice(2)}])`;
         }
       }
     }
@@ -2148,7 +2135,18 @@ private thisAlias: string | null = null;
     // log namespace
     if (objStr === 'log') return `__rt.log.${prop}`;
 
-    return `${objStr}.${prop}`;
+    // Field access on a UDT or a drawing object. Pine returns `na` when the
+    // object is `na` instead of throwing.
+    return `__rt.field(${objStr}, ${JSON.stringify(prop)})`;
+  }
+
+  /** Direct member access for assignment targets (never wrapped in field()). */
+  private genLValue(expr: Expression): string {
+    if (expr.kind === 'MemberExpression') {
+      const mem = expr as MemberExpression;
+      return `${this.genLValue(mem.object)}.${mem.property}`;
+    }
+    return this.genExpr(expr);
   }
 
   private genIndex(expr: IndexExpression): string {

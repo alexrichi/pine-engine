@@ -240,15 +240,19 @@ export class Parser {
         return this.parseExportStmt();
 
       case TokenType.TYPE:
-        return this.parseTypeDecl();
+        // `type` is also a legal variable name (`type = input.string(...)`).
+        if (this.peekAt(1)?.type === TokenType.IDENTIFIER) return this.parseTypeDecl();
+        return this.parseExprOrAssign();
 
       case TokenType.ENUM:
         return this.parseEnumDecl();
 
       case TokenType.METHOD:
         // `method` is also a legal variable name (`method = input.string(...)`).
-        // Only parse a declaration when it is followed by `name(`.
-        if (this.peekAt(1)?.type === TokenType.IDENTIFIER && this.peekAt(2)?.type === TokenType.LPAREN) {
+        // Only parse a declaration when it is followed by `name(`; the name may
+        // itself be a type keyword (`method type(string s) => ...`).
+        if ((this.peekAt(1)?.type === TokenType.IDENTIFIER || this.peekAt(1)?.type === TokenType.TYPE) &&
+            this.peekAt(2)?.type === TokenType.LPAREN) {
           return this.parseMethodDecl();
         }
         return this.parseExprOrAssign();
@@ -571,14 +575,40 @@ export class Parser {
       }
       return stmt ? [stmt] : [];
     }
-    const expr = this.parseExpression();
+
+    // Pine allows a comma-separated statement list on one line; the last
+    // statement is the function's value.
+    const statements: Statement[] = [];
+    const first = this.parseStatementSafe();
+    if (first) statements.push(first);
+    while (this.check(TokenType.COMMA)) {
+      this.advance();
+      const next = this.parseStatementSafe();
+      if (next) statements.push(next);
+    }
     this.consumeNewline();
-    return expr;
+
+    if (statements.length === 0) {
+      return { kind: 'LiteralExpression', valueType: 'na', value: null, loc: this.peek().loc } as LiteralExpression;
+    }
+    if (statements.length === 1) {
+      const only = statements[0]!;
+      return only.kind === 'ExpressionStatement'
+        ? (only as ExpressionStatement).expression
+        : statements;
+    }
+    const last = statements.pop()!;
+    const value = last.kind === 'ExpressionStatement'
+      ? (last as ExpressionStatement).expression
+      : ({ kind: 'LiteralExpression', valueType: 'na', value: null, loc: last.loc } as LiteralExpression);
+    return { kind: 'BlockExpression', statements, value, loc: last.loc } as BlockExpression;
   }
   private parseMethodDecl(): MethodDeclaration {
     const loc = this.peek().loc;
     this.advance(); // consume 'method'
-    const nameTok = this.expect(TokenType.IDENTIFIER, 'Expected method name');
+    const nameTok = (this.check(TokenType.TYPE) || this.check(TokenType.METHOD))
+      ? this.advance()
+      : this.expect(TokenType.IDENTIFIER, 'Expected method name');
     this.expect(TokenType.LPAREN, 'Expected (');
     const params = this.parseFunctionParams();
     this.expect(TokenType.RPAREN, 'Expected )');
@@ -1357,6 +1387,11 @@ export class Parser {
       }
       const stmt = this.parseStatementSafe();
       if (stmt) statements.push(stmt);
+      while (this.check(TokenType.COMMA)) {
+        this.advance();
+        const next = this.parseStatementSafe();
+        if (next) statements.push(next);
+      }
       this.skipNewlines();
     }
     this.expect(TokenType.DEDENT, 'Expected dedent');

@@ -161,6 +161,12 @@ export interface RuntimeContext {
   toFloat(value: unknown): number;
   toBool(value: unknown): number | boolean;
     toStr(value: unknown): string;
+  /** Read a UDT field; `na` objects yield `na`. */
+  field(value: unknown, name: string): unknown;
+  /** Iterable view for `for ... in`; `na` yields an empty list. */
+  iterable(value: unknown): unknown[];
+  /** Call a UDT method; `na` objects yield `na`. */
+  udtCall(value: unknown, name: string, args: unknown[]): unknown;
   /** Cast a drawing-type value: keep the handle, null for `na`. */
   drawingHandle(value: unknown): unknown;
   /** Receiver for a drawing method call; `na` receivers become a no-op proxy. */
@@ -382,7 +388,16 @@ export function createContext(
 
     series(name: string): Series<number> {
       const b = builtins as unknown as Record<string, Series<number>>;
-      return b[name];
+      if (b[name]) return b[name];
+      // Derived series that are plain getters on the context.
+      if (name === 'time_close') {
+        const time = builtins.time;
+        return {
+          get length() { return time.length; },
+          get(index: number = 0) { return time.get(index) + barMs; },
+        } as unknown as Series<number>;
+      }
+      return b[name]!;
     },
 
     ta,
@@ -779,6 +794,30 @@ export function createContext(
     toStr(value: unknown): string {
       const scalar = value instanceof Series ? value.get(0) : value;
       return isNa(scalar) ? 'NaN' : String(scalar);
+    },
+
+    field(value: unknown, name: string): unknown {
+      const scalar = value instanceof Series ? value.get(0) : value;
+      if (scalar === null || scalar === undefined) return NA;
+      if (typeof scalar !== 'object' && typeof scalar !== 'function') return NA;
+      return (scalar as Record<string, unknown>)[name];
+    },
+
+    iterable(value: unknown): unknown[] {
+      const scalar = value instanceof Series ? value.get(0) : value;
+      if (Array.isArray(scalar)) return scalar;
+      if (scalar !== null && scalar !== undefined && typeof scalar === 'object' &&
+          Symbol.iterator in (scalar as object)) {
+        return [...(scalar as Iterable<unknown>)];
+      }
+      return [];
+    },
+
+    udtCall(value: unknown, name: string, args: unknown[]): unknown {
+      const scalar = value instanceof Series ? value.get(0) : value;
+      if (scalar === null || scalar === undefined || typeof scalar !== 'object') return NA;
+      const fn = (scalar as Record<string, unknown>)[name];
+      return typeof fn === 'function' ? (fn as (...a: unknown[]) => unknown).apply(scalar, args) : NA;
     },
 
     drawingHandle(value: unknown): unknown {

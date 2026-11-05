@@ -212,8 +212,11 @@ export function createTimeFunctions(getCurrentTime: () => number) {
     ): number | symbol {
       const ts = resolveTs(undefined);
       if (!session) return ts;
-      const [timeRange, daysStr] = session.split(':');
+      const sessionText = typeof session === 'string' ? session : '';
+      if (!sessionText.includes('-')) return ts;
+      const [timeRange, daysStr] = sessionText.split(':');
       const [startStr, endStr] = timeRange.split('-');
+      if (!startStr || !endStr) return ts;
       const startH = parseInt(startStr.slice(0, 2), 10);
       const startM = parseInt(startStr.slice(2), 10);
       const endH = parseInt(endStr.slice(0, 2), 10);

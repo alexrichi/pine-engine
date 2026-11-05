@@ -35,23 +35,25 @@ export const arrayModule = {
 
   /** Push a value onto the end of the array. */
   push(arr: any[], val: any): void {
+    if (!Array.isArray(arr)) return;
     arr.push(val);
   },
 
   /** Remove and return the last element. */
   pop(arr: any[]): any {
-    if (arr.length === 0) return undefined;
+    if (!Array.isArray(arr) || arr.length === 0) return NA;
     return arr.pop();
   },
 
   /** Get the element at the given index. */
   get(arr: any[], index: number): any {
-    if (index < 0 || index >= arr.length) return NA;
+    if (!Array.isArray(arr) || index < 0 || index >= arr.length) return NA;
     return arr[index];
   },
 
   /** Set the element at the given index. */
   set(arr: any[], index: number, val: any): void {
+    if (!Array.isArray(arr)) return;
     if (index >= 0 && index < arr.length) {
       arr[index] = val;
     }
@@ -59,12 +61,12 @@ export const arrayModule = {
 
   /** Return the size (length) of the array. */
   size(arr: any[]): number {
-    return arr.length;
+    return Array.isArray(arr) ? arr.length : 0;
   },
 
   /** Return the sum of all elements in a numeric array. */
   sum(arr: number[]): number {
-    if (arr.length === 0) return 0;
+    if (!Array.isArray(arr) || arr.length === 0) return 0;
     let total = 0;
     for (let i = 0; i < arr.length; i++) {
       total += arr[i];
@@ -74,7 +76,7 @@ export const arrayModule = {
 
   /** Return the average of all elements in a numeric array. */
   avg(arr: number[]): number {
-    if (arr.length === 0) return NaN;
+    if (!Array.isArray(arr) || arr.length === 0) return NaN;
     let total = 0;
     for (let i = 0; i < arr.length; i++) {
       total += arr[i];
@@ -84,7 +86,7 @@ export const arrayModule = {
 
   /** Return the maximum value in a numeric array. */
   max(arr: number[]): number {
-    if (arr.length === 0) return NaN;
+    if (!Array.isArray(arr) || arr.length === 0) return NaN;
     let m = arr[0];
     for (let i = 1; i < arr.length; i++) {
       if (arr[i] > m) m = arr[i];
@@ -94,7 +96,7 @@ export const arrayModule = {
 
   /** Return the minimum value in a numeric array. */
   min(arr: number[]): number {
-    if (arr.length === 0) return NaN;
+    if (!Array.isArray(arr) || arr.length === 0) return NaN;
     let m = arr[0];
     for (let i = 1; i < arr.length; i++) {
       if (arr[i] < m) m = arr[i];
@@ -104,27 +106,30 @@ export const arrayModule = {
 
   /** Insert a value at the given index, shifting elements right. */
   insert(arr: any[], index: number, val: any): void {
+    if (!Array.isArray(arr)) return;
     arr.splice(index, 0, val);
   },
 
   /** Remove and return the element at the given index. */
   remove(arr: any[], index: number): any {
-    if (index < 0 || index >= arr.length) return undefined;
+    if (!Array.isArray(arr) || index < 0 || index >= arr.length) return NA;
     return arr.splice(index, 1)[0];
   },
 
   /** Remove all elements from the array. */
   clear(arr: any[]): void {
+    if (!Array.isArray(arr)) return;
     arr.length = 0;
   },
 
   /** Return a shallow copy of the array. */
   copy(arr: any[]): any[] {
-    return arr.slice();
+    return Array.isArray(arr) ? arr.slice() : [];
   },
 
   /** Reverse the array in place. */
   reverse(arr: any[]): void {
+    if (!Array.isArray(arr)) return;
     arr.reverse();
   },
 
@@ -174,18 +179,19 @@ export const arrayModule = {
 
   /** Remove and return the first element. */
   shift(arr: any[]): any {
-    if (arr.length === 0) return undefined;
+    if (!Array.isArray(arr) || arr.length === 0) return NA;
     return arr.shift();
   },
 
   /** Add element(s) to the beginning. */
   unshift(arr: any[], val: any): void {
+    if (!Array.isArray(arr)) return;
     arr.unshift(val);
   },
 
   /** Return the median of a numeric array. */
   median(arr: number[]): number {
-    if (arr.length === 0) return NaN;
+    if (!Array.isArray(arr) || arr.length === 0) return NaN;
     const sorted = arr.slice().sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
     return sorted.length % 2 !== 0
@@ -195,7 +201,7 @@ export const arrayModule = {
 
   /** Return the standard deviation. */
   stdev(arr: number[]): number {
-    if (arr.length === 0) return NaN;
+    if (!Array.isArray(arr) || arr.length === 0) return NaN;
     const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
     const sqDiffs = arr.map(v => (v - mean) ** 2);
     return Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / arr.length);
@@ -203,14 +209,14 @@ export const arrayModule = {
 
   /** Return the variance. */
   variance(arr: number[]): number {
-    if (arr.length === 0) return NaN;
+    if (!Array.isArray(arr) || arr.length === 0) return NaN;
     const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
     return arr.map(v => (v - mean) ** 2).reduce((a, b) => a + b, 0) / arr.length;
   },
 
   /** Return the range (max - min). */
   range(arr: number[]): number {
-    if (arr.length === 0) return NaN;
+    if (!Array.isArray(arr) || arr.length === 0) return NaN;
     let lo = arr[0], hi = arr[0];
     for (let i = 1; i < arr.length; i++) {
       if (arr[i] < lo) lo = arr[i];
@@ -221,12 +227,12 @@ export const arrayModule = {
 
   /** Return the first element. */
   first(arr: any[]): any {
-    return arr.length > 0 ? arr[0] : NA;
+    return Array.isArray(arr) && arr.length > 0 ? arr[0] : NA;
   },
 
   /** Return the last element. */
   last(arr: any[]): any {
-    return arr.length > 0 ? arr[arr.length - 1] : NA;
+    return Array.isArray(arr) && arr.length > 0 ? arr[arr.length - 1] : NA;
   },
 
   /** Concatenate two arrays into a new one. */
@@ -476,6 +482,7 @@ function matrixCopy(m: PineMatrix<any>): PineMatrix<any> {
 }
 
 function matrixNumbers(m: PineMatrix<any>): number[][] {
+  if (!m || !Array.isArray(m.data)) return [];
   return m.data.map((row) => row.map(matrixNumber));
 }
 
@@ -640,8 +647,11 @@ function matrixEigen(values: number[][]): { values: number[]; vectors: number[][
 
 function matrixPseudoInverse(m: PineMatrix<any>): PineMatrix<number> {
   const values = matrixNumbers(m);
-  const transposed = matrixModule.transpose({ data: values, rows: m.rows, cols: m.cols });
-  const product = matrixMultiply(transposed, { data: values, rows: m.rows, cols: m.cols });
+  const rows = m?.rows ?? 0;
+  const cols = m?.cols ?? 0;
+  if (rows === 0 || cols === 0) return { data: [], rows: 0, cols: 0 };
+  const transposed = matrixModule.transpose({ data: values, rows, cols });
+  const product = matrixMultiply(transposed, { data: values, rows, cols });
   const inverse = matrixInverse(product.data);
   if (inverse.length === 0) return { data: [], rows: 0, cols: 0 };
   return matrixMultiply(

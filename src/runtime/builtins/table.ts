@@ -40,6 +40,16 @@ export function createTableModule() {
   }
 
   function ensureCell(table: TableObject, col: number, row: number): TableCell {
+    if (!table || typeof table !== 'object' || !Array.isArray(table.cells) ||
+        !Number.isFinite(col) || !Number.isFinite(row) || !table.cells[row]) {
+      // `table.cell` on an `na` handle is a no-op in Pine.
+      return {
+        text: '', bgcolor: '', text_color: '#000000', text_size: 'auto',
+        text_halign: 'center', text_valign: 'center', tooltip: '',
+        colspan: 1, rowspan: 1, width: 0, height: 0,
+        text_font_family: '', text_formatting: '',
+      };
+    }
     if (row < 0 || row >= table.rows || col < 0 || col >= table.columns) {
       throw new Error(`Cell (${col}, ${row}) is out of bounds for table with ${table.columns} columns and ${table.rows} rows`);
     }
@@ -175,6 +185,7 @@ export function createTableModule() {
       endCol: number,
       endRow: number
     ): void {
+      if (!table || typeof table !== 'object' || !Array.isArray(table.cells)) return;
       for (let r = startRow; r <= endRow && r < table.rows; r++) {
         for (let c = startCol; c <= endCol && c < table.columns; c++) {
           table.cells[r][c] = null;
@@ -183,14 +194,17 @@ export function createTableModule() {
     },
 
     set_bgcolor(table: TableObject, val: string): void {
+      if (!table || typeof table !== 'object') return;
       table.bgcolor = val;
     },
 
     set_border_color(table: TableObject, val: string): void {
+      if (!table || typeof table !== 'object') return;
       table.border_color = val;
     },
 
     set_border_width(table: TableObject, val: number): void {
+      if (!table || typeof table !== 'object') return;
       table.border_width = val;
     },
 

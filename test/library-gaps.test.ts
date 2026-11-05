@@ -44,6 +44,19 @@ plot(pick(2), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(1);
   });
 
+  it('treats a UDT method call on na as na', () => {
+    const result = run(`//@version=6
+indicator("na method")
+type Thing
+    float v = 0.0
+method value(Thing self) => self.v
+Thing t = na
+plot(t.value(), "v")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBeNaN();
+  });
+
   it('returns the last value of a multi-statement if expression', () => {
     const result = run(`//@version=6
 indicator("if")

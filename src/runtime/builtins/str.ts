@@ -2,6 +2,11 @@
 
 import { NA } from '../types/na';
 
+/** Coerce a Pine string argument; non-strings (including na) yield ''. */
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 export const str = {
   /**
    * Convert any value to its string representation.
@@ -49,70 +54,59 @@ export const str = {
 
   /** Return the length of a string. */
   length(s: string): number {
-    if (s === null || s === undefined) return 0;
-    return s.length;
+    return text(s).length;
   },
 
   /** Convert to lowercase. */
   lower(s: string): string {
-    if (s === null || s === undefined) return '';
-    return s.toLowerCase();
+    return text(s).toLowerCase();
   },
 
   /** Convert to uppercase. */
   upper(s: string): string {
-    if (s === null || s === undefined) return '';
-    return s.toUpperCase();
+    return text(s).toUpperCase();
   },
 
   /** Check if the string contains the given substring. */
   contains(s: string, substr: string): boolean {
-    if (s === null || s === undefined || substr === null || substr === undefined) return false;
-    return s.includes(substr);
+    return text(s).includes(text(substr));
   },
 
   /** Check if the string starts with the given prefix. */
   startswith(s: string, prefix: string): boolean {
-    if (s === null || s === undefined || prefix === null || prefix === undefined) return false;
-    return s.startsWith(prefix);
+    return text(s).startsWith(text(prefix));
   },
 
   /** Check if the string ends with the given suffix. */
   endswith(s: string, suffix: string): boolean {
-    if (s === null || s === undefined || suffix === null || suffix === undefined) return false;
-    return s.endsWith(suffix);
+    return text(s).endsWith(text(suffix));
   },
 
   /** Extract a substring. */
   substring(s: string, begin: number, end?: number): string {
-    if (s === null || s === undefined) return '';
-    if (end === undefined) return s.substring(begin);
-    return s.substring(begin, end);
+    if (end === undefined) return text(s).substring(begin);
+    return text(s).substring(begin, end);
   },
 
   /** Split a string by a separator. */
   split(s: string, sep: string): string[] {
-    if (s === null || s === undefined) return [];
-    return s.split(sep);
+    return text(s).split(text(sep));
   },
 
   /** Trim whitespace from both ends. */
   trim(s: string): string {
-    if (s === null || s === undefined) return '';
-    return s.trim();
+    return text(s).trim();
   },
 
   /** Replace the first occurrence of target with replacement. */
   replace(s: string, target: string, replacement: string): string {
-    if (s === null || s === undefined) return '';
-    return s.replace(target, replacement);
+    return text(s).replace(text(target), text(replacement));
   },
 
   /** Replace all occurrences of target with replacement. */
   replaceAll(s: string, target: string, replacement: string): string {
-    if (s === null || s === undefined) return '';
     // Use split/join for broad compatibility
-    return s.split(target).join(replacement);
+    return text(s).split(text(target)).join(text(replacement));
   },
 
   /**
@@ -120,9 +114,9 @@ export const str = {
    * Pine Script str.match returns the matched substring, not a boolean.
    */
   match(s: string, regex: string): string | typeof NA {
-    if (s === null || s === undefined || regex === null || regex === undefined) return NA;
+    if (regex === null || regex === undefined) return NA;
     try {
-      const m = s.match(new RegExp(regex));
+      const m = text(s).match(new RegExp(text(regex)));
       return m ? m[0] : NA;
     } catch {
       return NA;
@@ -134,8 +128,7 @@ export const str = {
    * Returns -1 if not found (Pine returns na, but we use -1 for JS compat).
    */
   pos(s: string, substr: string): number {
-    if (s === null || s === undefined || substr === null || substr === undefined) return -1;
-    return s.indexOf(substr);
+    return text(s).indexOf(text(substr));
   },
 
   /**
@@ -154,8 +147,8 @@ export const str = {
    * Returns empty string if s is empty or count is <= 0.
    */
   repeat(s: string, count: number): string {
-    if (!s || count <= 0) return '';
-    return s.repeat(Math.floor(count));
+    if (count <= 0) return '';
+    return text(s).repeat(Math.floor(count));
   },
 
   /**

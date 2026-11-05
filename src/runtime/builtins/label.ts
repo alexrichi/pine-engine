@@ -129,6 +129,7 @@ export function createLabelModule() {
     },
 
     set_textcolor(label: LabelObject, val: string): void {
+      if (!label || typeof label !== 'object') return;
       label.textcolor = val;
     },
 
