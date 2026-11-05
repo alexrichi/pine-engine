@@ -11,7 +11,24 @@ export interface LabelObject {
   style: string;
   size: string;
   textalign: string;
+  text_font_family: string;
+  text_formatting: string;
   _deleted: boolean;
+}
+
+function pointXY(point: unknown): { x: number; y: number } | null {
+  if (Array.isArray(point) && point.length >= 2) {
+    const x = Number(point[0]);
+    const y = Number(point[1]);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  }
+  if (point && typeof point === 'object') {
+    const value = point as { x?: unknown; y?: unknown };
+    const x = Number(value.x);
+    const y = Number(value.y);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  }
+  return null;
 }
 
 export function createLabelModule() {
@@ -32,6 +49,8 @@ export function createLabelModule() {
         size?: string;
         textalign?: string;
         tooltip?: string;
+        text_font_family?: string;
+        text_formatting?: string;
       }
     ): LabelObject {
       const label: LabelObject = {
@@ -47,6 +66,8 @@ export function createLabelModule() {
         size: opts?.size ?? 'normal',
         textalign: opts?.textalign ?? 'center',
         tooltip: opts?.tooltip ?? '',
+        text_font_family: opts?.text_font_family ?? 'default',
+        text_formatting: opts?.text_formatting ?? '',
         _deleted: false,
       };
       labels.push(label);
@@ -69,6 +90,21 @@ export function createLabelModule() {
     set_xy(label: LabelObject, x: number, y: number): void {
       label.x = x;
       label.y = y;
+    },
+
+    set_point(label: LabelObject, point: unknown): void {
+      const value = pointXY(point);
+      if (!value) return;
+      label.x = value.x;
+      label.y = value.y;
+    },
+
+    set_text_font_family(label: LabelObject, val: string): void {
+      label.text_font_family = val;
+    },
+
+    set_text_formatting(label: LabelObject, val: string): void {
+      label.text_formatting = val;
     },
 
     set_xloc(label: LabelObject, val: string): void {
@@ -133,6 +169,8 @@ export function createLabelModule() {
         size: label.size,
         textalign: label.textalign,
         tooltip: label.tooltip,
+        text_font_family: label.text_font_family,
+        text_formatting: label.text_formatting,
         _deleted: false,
       };
       labels.push(copied);

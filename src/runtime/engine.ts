@@ -45,6 +45,7 @@ export function executeRunner(
     () => windowedBuiltins.low,
     () => windowedBuiltins.close,
     () => windowedBuiltins.volume,
+    () => windowedBuiltins.open,
   );
 
   const lastBarTime = bars.length > 0 ? bars[bars.length - 1]!.time : 0;

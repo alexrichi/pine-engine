@@ -1,6 +1,76 @@
 import { Series } from '../types/series';
 import { NA, isNa } from '../types/na';
 
+function pivotLevels(type: string, high: number, low: number, close: number, open: number): number[] {
+  const levels = new Array<number>(11).fill(NA as unknown as number);
+  if ([high, low, close].some((value) => !Number.isFinite(value))) return levels;
+  const range = high - low;
+  const kind = type.toLowerCase();
+  let p: number;
+  let r1: number;
+  let s1: number;
+
+  if (kind === 'fibonacci') {
+    p = (high + low + close) / 3;
+    levels[0] = p;
+    levels[1] = p + 0.382 * range;
+    levels[2] = p - 0.382 * range;
+    levels[3] = p + 0.618 * range;
+    levels[4] = p - 0.618 * range;
+    levels[5] = p + range;
+    levels[6] = p - range;
+    levels[7] = p + 1.618 * range;
+    levels[8] = p - 1.618 * range;
+    levels[9] = p + 2.618 * range;
+    levels[10] = p - 2.618 * range;
+    return levels;
+  }
+
+  if (kind === 'camarilla') {
+    p = close;
+    levels[0] = p;
+    levels[1] = close + (1.1 * range) / 12;
+    levels[2] = close - (1.1 * range) / 12;
+    levels[3] = close + (1.1 * range) / 6;
+    levels[4] = close - (1.1 * range) / 6;
+    levels[5] = close + (1.1 * range) / 4;
+    levels[6] = close - (1.1 * range) / 4;
+    levels[7] = close + (1.1 * range) / 2;
+    levels[8] = close - (1.1 * range) / 2;
+    levels[9] = low === 0 ? NA as unknown as number : (high / low) * close;
+    levels[10] = Number.isFinite(levels[9]) ? close - (levels[9] - close) : NA as unknown as number;
+    return levels;
+  }
+
+  if (kind === 'woodie') {
+    p = (high + low + 2 * close) / 3;
+  } else if (kind === 'dm') {
+    p = (high + low + close) / 3;
+    levels[0] = p;
+    levels[1] = p + range;
+    levels[2] = p - range;
+    return levels;
+  } else {
+    p = (high + low + close) / 3;
+  }
+
+  r1 = 2 * p - low;
+  s1 = 2 * p - high;
+  levels[0] = p;
+  levels[1] = r1;
+  levels[2] = s1;
+  levels[3] = p + range;
+  levels[4] = p - range;
+  levels[5] = high + 2 * (p - low);
+  levels[6] = low - 2 * (high - p);
+  levels[7] = levels[5]! + range;
+  levels[8] = levels[6]! - range;
+  levels[9] = levels[7]! + range;
+  levels[10] = levels[8]! - range;
+  void open;
+  return levels;
+}
+
 function rankValues(values: number[]): number[] {
   const order = values
     .map((value, index) => ({ value, index }))
@@ -116,6 +186,7 @@ export interface TaModule {
   mode(source: Series<number>, length: number): number;
   range(source: Series<number>, length: number): number;
   rci(source: Series<number>, length: number): number;
+  pivot_point_levels(type: string, anchor: boolean, developing?: boolean, id?: string): number[];
 }
 
 export function createTaModule(
@@ -123,7 +194,8 @@ export function createTaModule(
   getHigh?: () => Series<number>,
   getLow?: () => Series<number>,
   getClose?: () => Series<number>,
-  getVolume?: () => Series<number>
+  getVolume?: () => Series<number>,
+  getOpen?: () => Series<number>
 ): TaModule {
   // Per-run state. The compiler keys every stateful call by its source location,
   // so two ema() calls never share a slot and a scan run never inherits the
@@ -174,6 +246,14 @@ export function createTaModule(
     prevBarIndex: number;
   }>();
   const extremeState = new Map<string, { high: number; low: number; prevBarIndex: number }>();
+  const pivotState = new Map<string, {
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    levels: number[] | null;
+    prevBarIndex: number;
+  }>();
 
   // A TA source can be a builtin series or a plain value produced by another
   // expression (`ta.ema(fast, 9)`, `ta.highest(close - open, 10)`). Plain
@@ -1734,13 +1814,63 @@ export function createTaModule(
       if (denominator === 0) return NA as unknown as number;
       return (1 - (6 * sumSquared) / denominator) * 100;
     },
+
+    pivot_point_levels(
+      type: string,
+      anchor: boolean,
+      _developing: boolean = false,
+      id: string = 'default_pivots',
+    ): number[] {
+      const bar = getCurrentBarIndex();
+      const high = getHigh?.().get(0);
+      const low = getLow?.().get(0);
+      const close = getClose?.().get(0);
+      const open = getOpen?.().get(0) ?? close;
+      if (isNa(high) || isNa(low) || isNa(close)) {
+        return new Array<number>(11).fill(NA as unknown as number);
+      }
+
+      let state = pivotState.get(id);
+      if (!state || state.prevBarIndex !== bar - 1) {
+        state = {
+          open: open as number,
+          high: high as number,
+          low: low as number,
+          close: close as number,
+          levels: null,
+          prevBarIndex: bar,
+        };
+        pivotState.set(id, state);
+        if (anchor) {
+          state.open = open as number;
+          state.high = high as number;
+          state.low = low as number;
+          state.close = close as number;
+        }
+        return new Array<number>(11).fill(NA as unknown as number);
+      }
+
+      if (anchor) {
+        state.levels = pivotLevels(type, state.high, state.low, state.close, state.open);
+        state.open = open as number;
+        state.high = high as number;
+        state.low = low as number;
+        state.close = close as number;
+      } else {
+        state.high = Math.max(state.high, high as number);
+        state.low = Math.min(state.low, low as number);
+        state.close = close as number;
+      }
+      state.prevBarIndex = bar;
+      return state.levels ?? new Array<number>(11).fill(NA as unknown as number);
+    },
   };
 
   // Functions whose result depends on the previous bar.
   const STATEFUL = new Set([
     'ema', 'rsi', 'macd', 'atr', 'rma', 'cum', 'valuewhen', 'barssince',
     'dmi', 'mfi', 'obv', 'supertrend', 'hma', 'kc', 'vwap', 'sar',
-    'kcw', 'max', 'min',
+    'kcw', 'max', 'min', 'pivot_point_levels',
   ]);
 
   // Arguments that Pine treats as a series. Each is recorded per call site so
@@ -1791,6 +1921,9 @@ export function createTaModule(
         return fn.call(ta, args[0], args[1], args[2], id);
       }
       if (name === 'sar') {
+        return fn.call(ta, args[0], args[1], args[2], id);
+      }
+      if (name === 'pivot_point_levels') {
         return fn.call(ta, args[0], args[1], args[2], id);
       }
       return fn.call(ta, ...args, id);

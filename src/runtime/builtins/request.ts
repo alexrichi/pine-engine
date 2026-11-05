@@ -10,6 +10,15 @@ import { NA } from '../types/na';
 
 export interface RequestModule {
   security(symbol: string | any, timeframe: string, expression: any, gaps?: string, lookahead?: string): any;
+  security_lower_tf(symbol: string | any, timeframe: string, expression: any): any;
+  currency_rate(from: string, to: string): number;
+  financial(symbol: string, financialId: string, period?: string, gaps?: string): any;
+  economic(countryCode: string, field: string, time?: number): any;
+  dividends(symbol: string, dividendType: string, gaps?: string): any;
+  earnings(symbol: string, earningsType: string, gaps?: string): any;
+  splits(symbol: string, splitType: string, gaps?: string): any;
+  quandl(code: string, gaps?: string): any;
+  seed(seed: number, ...args: any[]): any;
 }
 
 const ALIASES: Record<string, string> = {
@@ -50,6 +59,14 @@ export function createRequestModule(
     );
   }
 
+  function unsupported(name: string): number {
+    if (!warned.has(name)) {
+      warned.add(name);
+      onWarning(`request.${name} has no data source; its values are na`);
+    }
+    return NA;
+  }
+
   function security(
     symbol: string | any,
     timeframe: string,
@@ -73,5 +90,36 @@ export function createRequestModule(
     return expression;
   }
 
-  return { security };
+  return {
+    security,
+    security_lower_tf(_symbol: string, _timeframe: string, expression: any): any {
+      unsupported('security_lower_tf');
+      return Array.isArray(expression) ? expression.map(() => NA) : [NA];
+    },
+    currency_rate(from: string, to: string): number {
+      if (String(from) === String(to)) return 1;
+      return unsupported('currency_rate');
+    },
+    financial(): any {
+      return unsupported('financial');
+    },
+    economic(): any {
+      return unsupported('economic');
+    },
+    dividends(): any {
+      return unsupported('dividends');
+    },
+    earnings(): any {
+      return unsupported('earnings');
+    },
+    splits(): any {
+      return unsupported('splits');
+    },
+    quandl(): any {
+      return unsupported('quandl');
+    },
+    seed(): any {
+      return unsupported('seed');
+    },
+  };
 }

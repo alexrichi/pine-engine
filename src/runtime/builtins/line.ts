@@ -1,3 +1,18 @@
+function pointXY(point: unknown): { x: number; y: number } | null {
+  if (Array.isArray(point) && point.length >= 2) {
+    const x = Number(point[0]);
+    const y = Number(point[1]);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  }
+  if (point && typeof point === 'object') {
+    const value = point as { x?: unknown; y?: unknown };
+    const x = Number(value.x);
+    const y = Number(value.y);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  }
+  return null;
+}
+
 export interface LineObject {
   id: number;
   x1: number;
@@ -76,6 +91,20 @@ export function createLineModule() {
     set_xy2(line: LineObject, x: number, y: number): void {
       line.x2 = x;
       line.y2 = y;
+    },
+
+    set_first_point(line: LineObject, point: unknown): void {
+      const value = pointXY(point);
+      if (!value) return;
+      line.x1 = value.x;
+      line.y1 = value.y;
+    },
+
+    set_second_point(line: LineObject, point: unknown): void {
+      const value = pointXY(point);
+      if (!value) return;
+      line.x2 = value.x;
+      line.y2 = value.y;
     },
 
     set_xloc(line: LineObject, val: string): void {

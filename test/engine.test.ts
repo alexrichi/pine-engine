@@ -521,4 +521,182 @@ plot(f() ? 1 : 0, "f")`,
     expect(result.ok).toBe(true);
     expect(result.plots[0]!.values.at(-1)).toBe(1);
   });
+
+  it('makes request.* data functions callable', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Requests")
+plot(request.financial("BINANCE:BTCUSDT", "TOTAL_REVENUE"), "financial")
+plot(request.economic("US", "GDP"), "economic")
+plot(request.dividends("BINANCE:BTCUSDT", "regular"), "dividends")
+plot(request.earnings("BINANCE:BTCUSDT", "reported"), "earnings")
+plot(request.splits("BINANCE:BTCUSDT", "regular"), "splits")
+plot(request.quandl("FRED/GDP"), "quandl")
+plot(request.seed(1, close), "seed")
+plot(request.currency_rate("USD", "USD"), "rate")
+plot(array.get(request.security_lower_tf(syminfo.tickerid, "1", close), 0), "lower")`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    expect(result.plots[0]!.values.every(Number.isNaN)).toBe(true);
+    expect(result.plots[7]!.values.at(-1)).toBe(1);
+    expect(result.warnings.join(' ')).toContain('request.financial');
+  });
+
+  it('applies ticker chart-type modifiers', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Ticker")
+plot(ticker.heikinashi("BINANCE:BTCUSDT") == "BINANCE:BTCUSDT;heikinashi" ? 1 : 0, "heikin")
+plot(ticker.standard(ticker.heikinashi("BINANCE:BTCUSDT")) == "BINANCE:BTCUSDT" ? 1 : 0, "standard")
+plot(ticker.renko("BINANCE:BTCUSDT") == "BINANCE:BTCUSDT;renko" ? 1 : 0, "renko")`,
+      bars: bars(5),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    for (const plot of result.plots) expect(plot.values.at(-1)).toBe(1);
+  });
+
+  it('updates drawing points and table cells through setters', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Setters", overlay=true)
+if barstate.islast
+    l = line.new(0, 1, 1, 2)
+    line.set_first_point(l, [3, 4])
+    line.set_second_point(l, [5, 6])
+    b = box.new(0, 10, 1, 1)
+    box.set_top_left_point(b, [2, 11])
+    box.set_bottom_right_point(b, [4, 3])
+    box.set_xloc(b, xloc.bar_time)
+    box.set_text_font_family(b, "monospace")
+    box.set_text_formatting(b, "bold")
+    box.set_text_wrap(b, true)
+    lb = label.new(0, 0, "x")
+    label.set_point(lb, [7, 8])
+    label.set_text_font_family(lb, "monospace")
+    label.set_text_formatting(lb, "italic")
+    t = table.new(position.top_right, 2, 2)
+    table.cell_set_width(t, 0, 0, 10)
+    table.cell_set_height(t, 0, 0, 20)
+    table.cell_set_text_font_family(t, 0, 0, "monospace")
+    table.cell_set_text_formatting(t, 0, 0, "bold")
+colour = color.red`,
+      bars: bars(5),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.drawings.lines[0]).toMatchObject({ x1: 3, y1: 4, x2: 5, y2: 6 });
+    expect(result.drawings.boxes[0]).toMatchObject({ left: 2, top: 11, right: 4, bottom: 3, xloc: 'bar_time' });
+    expect(result.drawings.labels[0]).toMatchObject({ x: 7, y: 8 });
+  });
+
+  it('supports collection, timeframe and pivot helpers', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Helpers")
+a = array.from(3, 1, 2)
+plot(array.get(array.sort_indices(a), 0), "index")
+left = map.new()
+right = map.new()
+map.put(right, "a", 5)
+map.put_all(left, right)
+plot(map.get(left, "a"), "map")
+plot(str.tonumber(timeframe.from_seconds(3600)), "seconds")
+levels = ta.pivot_point_levels("Traditional", timeframe.change("D"))
+plot(array.get(levels, 0), "pivot")`,
+      bars: bars(80),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(1);
+    expect(result.plots[1]!.values.at(-1)).toBe(5);
+    expect(result.plots[2]!.values.at(-1)).toBe(60);
+    expect(result.plots[3]!.values.some(Number.isFinite)).toBe(true);
+  });
+
+  it('supports the remaining input and strategy surface', () => {
+    const result = runPineScript({
+      source: `//@version=6
+strategy("Surface")
+mode = input.enum("A", "Mode", options=["A", "B"])
+when = input.time(0, "When")
+plot(mode == "A" ? 1 : 0, "mode")
+plot(when >= 0 ? 1 : 0, "time")
+plot(strategy.convert_to_account(close) == close ? 1 : 0, "account")
+plot(strategy.convert_to_symbol(close) == close ? 1 : 0, "symbol")
+plot(strategy.default_entry_qty(close) > 0 ? 1 : 0, "qty")
+strategy.close_all()`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok, result.error).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    for (const plot of result.plots) expect(plot.values.at(-1)).toBe(1);
+  });
+
+  it('runs linefill and polyline objects', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Linefill", overlay=true)
+if barstate.islast
+    a = line.new(0, 1, 1, 2)
+    b = line.new(0, 3, 1, 4)
+    fill = linefill.new(a, b, color.new(color.blue, 80))
+    linefill.set_color(fill, color.new(color.red, 50))
+    poly = polyline.new(array.from([0, 1], [1, 2]), false, false)
+    polyline.delete(poly)
+plot(close, "close")`,
+      bars: bars(5),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+  });
+
+  it('covers matrix creation, math and predicates', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Matrix")
+m = matrix.new<float>(2, 2, 0)
+matrix.set(m, 0, 0, 4)
+matrix.set(m, 0, 1, 7)
+matrix.set(m, 1, 0, 2)
+matrix.set(m, 1, 1, 6)
+s = matrix.new<float>(2, 2, 0)
+matrix.set(s, 0, 0, 2)
+matrix.set(s, 0, 1, 1)
+matrix.set(s, 1, 0, 1)
+matrix.set(s, 1, 1, 2)
+plot(matrix.det(m), "det")
+plot(matrix.trace(m), "trace")
+plot(matrix.rank(m), "rank")
+plot(matrix.sum(m), "sum")
+plot(matrix.median(m), "median")
+plot(matrix.get(matrix.inv(m), 0, 0), "inv")
+plot(matrix.get(matrix.mult(m, m), 0, 0), "mult")
+plot(matrix.get(matrix.transpose(m), 0, 1), "transpose")
+plot(array.get(matrix.eigenvalues(s), 0), "eigen")
+plot(matrix.is_square(m) ? 1 : 0, "square")
+plot(matrix.is_zero(m) ? 1 : 0, "zero")
+plot(matrix.is_identity(s) ? 1 : 0, "identity")
+plot(matrix.is_symmetric(s) ? 1 : 0, "symmetric")`,
+      bars: bars(5),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    expect(result.plots[0]!.values.at(-1)).toBe(10);
+    expect(result.plots[1]!.values.at(-1)).toBe(10);
+    expect(result.plots[2]!.values.at(-1)).toBe(2);
+    expect(result.plots[3]!.values.at(-1)).toBe(19);
+    expect(result.plots[4]!.values.at(-1)).toBe(5);
+    expect(result.plots[8]!.values.at(-1)).toBeGreaterThan(0);
+    expect(result.plots[9]!.values.at(-1)).toBe(1);
+    expect(result.plots[10]!.values.at(-1)).toBe(0);
+    expect(result.plots[11]!.values.at(-1)).toBe(0);
+    expect(result.plots[12]!.values.at(-1)).toBe(1);
+  });
 });

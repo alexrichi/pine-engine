@@ -39,7 +39,10 @@ comes back as `{ ok: false, error }`.
 
 - `request.security` works only for the chart's own symbol and timeframe. Any
   other symbol or timeframe returns `na` and adds a warning; the engine has no
-  second data feed.
+  second data feed. The other `request.*` data functions are callable but also
+  return `na` with a warning, so scripts that use them still run.
+- `ticker.heikinashi/renko/kagi/linebreak/pointfigure` append a chart-type
+  suffix to the symbol; `ticker.standard` strips it.
 - `plot` values are aligned to the input bars, including conditional plots and
   warm-up `na`.
 - Chained TA works (`ta.ema(ta.ema(close, 9), 9)`) because each TA call keeps a

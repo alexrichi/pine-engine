@@ -8,6 +8,10 @@ export interface TableCell {
   tooltip: string;
   colspan: number;
   rowspan: number;
+  width: number | string;
+  height: number | string;
+  text_font_family: string;
+  text_formatting: string;
 }
 
 export interface TableObject {
@@ -51,6 +55,10 @@ export function createTableModule() {
         tooltip: '',
         colspan: 1,
         rowspan: 1,
+        width: 0,
+        height: 0,
+        text_font_family: 'default',
+        text_formatting: '',
       };
       table.cells[row][col] = cell;
     }
@@ -113,6 +121,10 @@ export function createTableModule() {
         tooltip?: string;
         colspan?: number;
         rowspan?: number;
+        width?: number | string;
+        height?: number | string;
+        text_font_family?: string;
+        text_formatting?: string;
       }
     ): void {
       const cell = ensureCell(table, column, row);
@@ -127,6 +139,10 @@ export function createTableModule() {
       if (opts?.tooltip !== undefined) cell.tooltip = opts.tooltip;
       if (opts?.colspan !== undefined) cell.colspan = opts.colspan;
       if (opts?.rowspan !== undefined) cell.rowspan = opts.rowspan;
+      if (opts?.width !== undefined) cell.width = opts.width;
+      if (opts?.height !== undefined) cell.height = opts.height;
+      if (opts?.text_font_family !== undefined) cell.text_font_family = opts.text_font_family;
+      if (opts?.text_formatting !== undefined) cell.text_formatting = opts.text_formatting;
     },
 
     merge_cells(
@@ -222,6 +238,26 @@ export function createTableModule() {
     cell_set_tooltip(table: TableObject, col: number, row: number, val: string): void {
       const cell = ensureCell(table, col, row);
       cell.tooltip = val;
+    },
+
+    cell_set_width(table: TableObject, col: number, row: number, val: number | string): void {
+      const cell = ensureCell(table, col, row);
+      cell.width = val;
+    },
+
+    cell_set_height(table: TableObject, col: number, row: number, val: number | string): void {
+      const cell = ensureCell(table, col, row);
+      cell.height = val;
+    },
+
+    cell_set_text_font_family(table: TableObject, col: number, row: number, val: string): void {
+      const cell = ensureCell(table, col, row);
+      cell.text_font_family = val;
+    },
+
+    cell_set_text_formatting(table: TableObject, col: number, row: number, val: string): void {
+      const cell = ensureCell(table, col, row);
+      cell.text_formatting = val;
     },
 
     get all(): TableObject[] {

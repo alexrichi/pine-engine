@@ -238,6 +238,12 @@ export const arrayModule = {
     return new Array(size).fill(val ?? null);
   },
 
+  /** Create a new linefill array. */
+  newLinefill(size?: number, val?: any): any[] {
+    if (size === undefined || size <= 0) return [];
+    return new Array(size).fill(val ?? null);
+  },
+
   /** Create a new label array. */
   newLabel(size?: number, val?: any): any[] {
     if (size === undefined || size <= 0) return [];
@@ -405,6 +411,11 @@ export const mapModule = {
     return prev;
   },
 
+  /** Copy all key-value pairs from source into target. */
+  putAll<K, V>(target: Map<K, V>, source: Map<K, V>): void {
+    for (const [key, value] of source) target.set(key, value);
+  },
+
   /** Get the value associated with the key, or undefined. */
   get<K, V>(m: Map<K, V>, key: K): V | undefined {
     return m.get(key);
@@ -450,6 +461,190 @@ export interface PineMatrix<T = any> {
   data: T[][];
   rows: number;
   cols: number;
+}
+
+function matrixNumber(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : Number.NaN;
+}
+
+function matrixCopy(m: PineMatrix<any>): PineMatrix<any> {
+  return { data: m.data.map((row) => row.slice()), rows: m.rows, cols: m.cols };
+}
+
+function matrixNumbers(m: PineMatrix<any>): number[][] {
+  return m.data.map((row) => row.map(matrixNumber));
+}
+
+function matrixMultiply(a: PineMatrix<any>, b: PineMatrix<any>): PineMatrix<number> {
+  if (typeof b === 'number') {
+    return {
+      data: a.data.map((row) => row.map((value) => matrixNumber(value) * b)),
+      rows: a.rows,
+      cols: a.cols,
+    };
+  }
+  if (typeof a === 'number') {
+    return {
+      data: b.data.map((row) => row.map((value) => matrixNumber(value) * a)),
+      rows: b.rows,
+      cols: b.cols,
+    };
+  }
+  if (a.cols !== b.rows) return { data: [], rows: 0, cols: 0 };
+  const data: number[][] = [];
+  for (let r = 0; r < a.rows; r++) {
+    const row: number[] = [];
+    for (let c = 0; c < b.cols; c++) {
+      let sum = 0;
+      for (let k = 0; k < a.cols; k++) {
+        sum += matrixNumber(a.data[r][k]) * matrixNumber(b.data[k][c]);
+      }
+      row.push(sum);
+    }
+    data.push(row);
+  }
+  return { data, rows: a.rows, cols: b.cols };
+}
+
+function matrixDeterminant(values: number[][]): number {
+  const n = values.length;
+  if (n === 0 || values.some((row) => row.length !== n)) return Number.NaN;
+  const a = values.map((row) => row.slice());
+  let determinant = 1;
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+    }
+    if (Math.abs(a[pivot][col]) < 1e-12) return 0;
+    if (pivot !== col) {
+      [a[pivot], a[col]] = [a[col], a[pivot]];
+      determinant *= -1;
+    }
+    determinant *= a[col][col];
+    const divisor = a[col][col];
+    for (let row = col + 1; row < n; row++) {
+      const factor = a[row][col] / divisor;
+      for (let k = col; k < n; k++) a[row][k] -= factor * a[col][k];
+    }
+  }
+  return determinant;
+}
+
+function matrixInverse(values: number[][]): number[][] {
+  const n = values.length;
+  if (n === 0 || values.some((row) => row.length !== n)) return [];
+  const a = values.map((row, index) => [
+    ...row,
+    ...Array.from({ length: n }, (_, column) => (column === index ? 1 : 0)),
+  ]);
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+    }
+    if (Math.abs(a[pivot][col]) < 1e-12) return [];
+    [a[pivot], a[col]] = [a[col], a[pivot]];
+    const divisor = a[col][col];
+    for (let k = 0; k < 2 * n; k++) a[col][k] /= divisor;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = a[row][col];
+      for (let k = 0; k < 2 * n; k++) a[row][k] -= factor * a[col][k];
+    }
+  }
+  return a.map((row) => row.slice(n));
+}
+
+function matrixRank(values: number[][]): number {
+  const a = values.map((row) => row.slice());
+  const rows = a.length;
+  const cols = rows > 0 ? a[0].length : 0;
+  let rank = 0;
+  for (let col = 0; col < cols && rank < rows; col++) {
+    let pivot = rank;
+    for (let row = rank + 1; row < rows; row++) {
+      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+    }
+    if (Math.abs(a[pivot][col]) < 1e-12) continue;
+    [a[pivot], a[rank]] = [a[rank], a[pivot]];
+    const divisor = a[rank][col];
+    for (let k = col; k < cols; k++) a[rank][k] /= divisor;
+    for (let row = 0; row < rows; row++) {
+      if (row === rank) continue;
+      const factor = a[row][col];
+      for (let k = col; k < cols; k++) a[row][k] -= factor * a[rank][k];
+    }
+    rank++;
+  }
+  return rank;
+}
+
+/** Jacobi eigen decomposition for a symmetric matrix. */
+function matrixEigen(values: number[][]): { values: number[]; vectors: number[][] } {
+  const n = values.length;
+  if (n === 0 || values.some((row) => row.length !== n)) return { values: [], vectors: [] };
+  const a = values.map((row) => row.slice());
+  const vectors: number[][] = Array.from({ length: n }, (_, row) =>
+    Array.from({ length: n }, (_, col) => (row === col ? 1 : 0)),
+  );
+  for (let iteration = 0; iteration < 100 * n * n; iteration++) {
+    let p = 0;
+    let q = 1;
+    let max = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (Math.abs(a[i][j]) > max) {
+          max = Math.abs(a[i][j]);
+          p = i;
+          q = j;
+        }
+      }
+    }
+    if (max < 1e-12) break;
+    const angle = 0.5 * Math.atan2(2 * a[p][q], a[q][q] - a[p][p]);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const app = a[p][p];
+    const aqq = a[q][q];
+    const apq = a[p][q];
+    for (let k = 0; k < n; k++) {
+      const akp = a[k][p];
+      const akq = a[k][q];
+      a[k][p] = cos * akp - sin * akq;
+      a[k][q] = sin * akp + cos * akq;
+    }
+    for (let k = 0; k < n; k++) {
+      const apk = a[p][k];
+      const aqk = a[q][k];
+      a[p][k] = cos * apk - sin * aqk;
+      a[q][k] = sin * apk + cos * aqk;
+    }
+    a[p][p] = cos * cos * app - 2 * sin * cos * apq + sin * sin * aqq;
+    a[q][q] = sin * sin * app + 2 * sin * cos * apq + cos * cos * aqq;
+    a[p][q] = 0;
+    a[q][p] = 0;
+    for (let k = 0; k < n; k++) {
+      const vkp = vectors[k][p];
+      const vkq = vectors[k][q];
+      vectors[k][p] = cos * vkp - sin * vkq;
+      vectors[k][q] = sin * vkp + cos * vkq;
+    }
+  }
+  return { values: a.map((row, index) => row[index]), vectors };
+}
+
+function matrixPseudoInverse(m: PineMatrix<any>): PineMatrix<number> {
+  const values = matrixNumbers(m);
+  const transposed = matrixModule.transpose({ data: values, rows: m.rows, cols: m.cols });
+  const product = matrixMultiply(transposed, { data: values, rows: m.rows, cols: m.cols });
+  const inverse = matrixInverse(product.data);
+  if (inverse.length === 0) return { data: [], rows: 0, cols: 0 };
+  return matrixMultiply(
+    { data: inverse, rows: inverse.length, cols: inverse.length },
+    transposed,
+  );
 }
 
 export const matrixModule = {
@@ -527,5 +722,365 @@ export const matrixModule = {
     }
     m.cols--;
     return removed;
+  },
+
+  newFloat(rows: number, cols: number, val: number = 0): PineMatrix<number> {
+    return matrixModule.new(rows, cols, val);
+  },
+
+  newInt(rows: number, cols: number, val: number = 0): PineMatrix<number> {
+    return matrixModule.new(rows, cols, Math.trunc(val));
+  },
+
+  newBool(rows: number, cols: number, val: boolean = false): PineMatrix<boolean> {
+    return matrixModule.new(rows, cols, val);
+  },
+
+  copy<T>(m: PineMatrix<T>): PineMatrix<T> {
+    return { data: m.data.map((row) => row.slice()), rows: m.rows, cols: m.cols };
+  },
+
+  fill<T>(m: PineMatrix<T>, val: T): void {
+    for (const row of m.data) row.fill(val);
+  },
+
+  sum(m: PineMatrix<any>): number {
+    let total = 0;
+    let found = false;
+    for (const row of m.data) {
+      for (const value of row) {
+        const number = matrixNumber(value);
+        if (Number.isFinite(number)) {
+          total += number;
+          found = true;
+        }
+      }
+    }
+    return found ? total : Number.NaN;
+  },
+
+  avg(m: PineMatrix<any>): number {
+    let total = 0;
+    let count = 0;
+    for (const row of m.data) {
+      for (const value of row) {
+        const number = matrixNumber(value);
+        if (Number.isFinite(number)) {
+          total += number;
+          count++;
+        }
+      }
+    }
+    return count > 0 ? total / count : Number.NaN;
+  },
+
+  max(m: PineMatrix<any>): number {
+    let result = Number.NEGATIVE_INFINITY;
+    for (const row of m.data) {
+      for (const value of row) {
+        const number = matrixNumber(value);
+        if (Number.isFinite(number) && number > result) result = number;
+      }
+    }
+    return Number.isFinite(result) ? result : Number.NaN;
+  },
+
+  min(m: PineMatrix<any>): number {
+    let result = Number.POSITIVE_INFINITY;
+    for (const row of m.data) {
+      for (const value of row) {
+        const number = matrixNumber(value);
+        if (Number.isFinite(number) && number < result) result = number;
+      }
+    }
+    return Number.isFinite(result) ? result : Number.NaN;
+  },
+
+  median(m: PineMatrix<any>): number {
+    const values = m.data.flat().map(matrixNumber).filter(Number.isFinite).sort((a, b) => a - b);
+    if (values.length === 0) return Number.NaN;
+    const middle = Math.floor(values.length / 2);
+    return values.length % 2 === 1 ? values[middle]! : (values[middle - 1]! + values[middle]!) / 2;
+  },
+
+  mode(m: PineMatrix<any>): number {
+    const counts = new Map<number, number>();
+    for (const value of m.data.flat()) {
+      const number = matrixNumber(value);
+      if (Number.isFinite(number)) counts.set(number, (counts.get(number) ?? 0) + 1);
+    }
+    let best = Number.NaN;
+    let bestCount = 0;
+    for (const [value, count] of counts) {
+      if (count > bestCount || (count === bestCount && (Number.isNaN(best) || value < best))) {
+        best = value;
+        bestCount = count;
+      }
+    }
+    return best;
+  },
+
+  transpose<T>(m: PineMatrix<T>): PineMatrix<T> {
+    const data: T[][] = [];
+    for (let c = 0; c < m.cols; c++) {
+      const row: T[] = [];
+      for (let r = 0; r < m.rows; r++) row.push(m.data[r][c]);
+      data.push(row);
+    }
+    return { data, rows: m.cols, cols: m.rows };
+  },
+
+  reverse<T>(m: PineMatrix<T>): void {
+    m.data.reverse();
+    for (const row of m.data) row.reverse();
+  },
+
+  sort(m: PineMatrix<any>, column: number, order?: string): void {
+    const dir = order === 'descending' || order === 'desc' ? -1 : 1;
+    if (column < 0 || column >= m.cols) return;
+    m.data.sort((a, b) => {
+      const left = matrixNumber(a[column]);
+      const right = matrixNumber(b[column]);
+      if (Number.isNaN(left) && Number.isNaN(right)) return 0;
+      if (Number.isNaN(left)) return 1;
+      if (Number.isNaN(right)) return -1;
+      return (left - right) * dir;
+    });
+  },
+
+  reshape<T>(m: PineMatrix<T>, rows: number, cols: number): void {
+    const flat = m.data.flat();
+    const data: T[][] = [];
+    for (let r = 0; r < rows; r++) {
+      const row: T[] = [];
+      for (let c = 0; c < cols; c++) {
+        row.push((flat[r * cols + c] ?? Number.NaN) as T);
+      }
+      data.push(row);
+    }
+    m.data = data;
+    m.rows = rows;
+    m.cols = cols;
+  },
+
+  row<T>(m: PineMatrix<T>, row: number): T[] {
+    if (row < 0 || row >= m.rows) return [];
+    return m.data[row].slice();
+  },
+
+  col<T>(m: PineMatrix<T>, column: number): T[] {
+    if (column < 0 || column >= m.cols) return [];
+    return m.data.map((row) => row[column]);
+  },
+
+  submatrix<T>(
+    m: PineMatrix<T>,
+    fromRow: number,
+    toRow: number,
+    fromCol: number,
+    toCol: number,
+  ): PineMatrix<T> {
+    const r0 = Math.max(0, Math.min(fromRow, m.rows - 1));
+    const r1 = Math.max(r0, Math.min(toRow, m.rows - 1));
+    const c0 = Math.max(0, Math.min(fromCol, m.cols - 1));
+    const c1 = Math.max(c0, Math.min(toCol, m.cols - 1));
+    const data: T[][] = [];
+    for (let r = r0; r <= r1; r++) data.push(m.data[r].slice(c0, c1 + 1));
+    return { data, rows: data.length, cols: data[0]?.length ?? 0 };
+  },
+
+  concat<T>(first: PineMatrix<T>, second: PineMatrix<T>): PineMatrix<T> {
+    if (first.cols !== second.cols) return { data: [], rows: 0, cols: 0 };
+    return {
+      data: [...first.data.map((row) => row.slice()), ...second.data.map((row) => row.slice())],
+      rows: first.rows + second.rows,
+      cols: first.cols,
+    };
+  },
+
+  diff(m1: PineMatrix<any>, m2: PineMatrix<any> | number): PineMatrix<number> {
+    if (typeof m2 === 'number') {
+      return {
+        data: m1.data.map((row) => row.map((value) => matrixNumber(value) - m2)),
+        rows: m1.rows,
+        cols: m1.cols,
+      };
+    }
+    if (m1.rows !== m2.rows || m1.cols !== m2.cols) return { data: [], rows: 0, cols: 0 };
+    return {
+      data: m1.data.map((row, r) => row.map((value, c) => matrixNumber(value) - matrixNumber(m2.data[r][c]))),
+      rows: m1.rows,
+      cols: m1.cols,
+    };
+  },
+
+  mult(a: PineMatrix<any>, b: PineMatrix<any> | number): PineMatrix<number> {
+    return matrixMultiply(a, b as any);
+  },
+
+  pow(m: PineMatrix<any>, exponent: number): PineMatrix<number> {
+    return {
+      data: m.data.map((row) => row.map((value) => Math.pow(matrixNumber(value), exponent))),
+      rows: m.rows,
+      cols: m.cols,
+    };
+  },
+
+  kron(a: PineMatrix<any>, b: PineMatrix<any>): PineMatrix<number> {
+    const data: number[][] = [];
+    for (let ar = 0; ar < a.rows; ar++) {
+      for (let br = 0; br < b.rows; br++) {
+        const row: number[] = [];
+        for (let ac = 0; ac < a.cols; ac++) {
+          for (let bc = 0; bc < b.cols; bc++) {
+            row.push(matrixNumber(a.data[ar][ac]) * matrixNumber(b.data[br][bc]));
+          }
+        }
+        data.push(row);
+      }
+    }
+    return { data, rows: data.length, cols: data[0]?.length ?? 0 };
+  },
+
+  trace(m: PineMatrix<any>): number {
+    let total = 0;
+    const size = Math.min(m.rows, m.cols);
+    for (let i = 0; i < size; i++) total += matrixNumber(m.data[i][i]);
+    return total;
+  },
+
+  det(m: PineMatrix<any>): number {
+    return matrixDeterminant(matrixNumbers(m));
+  },
+
+  inv(m: PineMatrix<any>): PineMatrix<number> {
+    const inverse = matrixInverse(matrixNumbers(m));
+    return { data: inverse, rows: inverse.length, cols: inverse[0]?.length ?? 0 };
+  },
+
+  pinv(m: PineMatrix<any>): PineMatrix<number> {
+    return matrixPseudoInverse(m);
+  },
+
+  rank(m: PineMatrix<any>): number {
+    return matrixRank(matrixNumbers(m));
+  },
+
+  eigenvalues(m: PineMatrix<any>): number[] {
+    return matrixEigen(matrixNumbers(m)).values;
+  },
+
+  eigenvectors(m: PineMatrix<any>): PineMatrix<number> {
+    const { vectors } = matrixEigen(matrixNumbers(m));
+    return { data: vectors, rows: vectors.length, cols: vectors[0]?.length ?? 0 };
+  },
+
+  elementsCount(m: PineMatrix<any>): number {
+    return m.rows * m.cols;
+  },
+
+  swapRows<T>(m: PineMatrix<T>, first: number, second: number): void {
+    if (first < 0 || first >= m.rows || second < 0 || second >= m.rows) return;
+    [m.data[first], m.data[second]] = [m.data[second], m.data[first]];
+  },
+
+  swapColumns<T>(m: PineMatrix<T>, first: number, second: number): void {
+    if (first < 0 || first >= m.cols || second < 0 || second >= m.cols) return;
+    for (const row of m.data) {
+      [row[first], row[second]] = [row[second], row[first]];
+    }
+  },
+
+  isSquare(m: PineMatrix<any>): boolean {
+    return m.rows === m.cols;
+  },
+
+  isZero(m: PineMatrix<any>): boolean {
+    return m.data.every((row) => row.every((value) => matrixNumber(value) === 0));
+  },
+
+  isBinary(m: PineMatrix<any>): boolean {
+    return m.data.every((row) =>
+      row.every((value) => {
+        const number = matrixNumber(value);
+        return number === 0 || number === 1;
+      }),
+    );
+  },
+
+  isIdentity(m: PineMatrix<any>): boolean {
+    if (m.rows !== m.cols) return false;
+    for (let r = 0; r < m.rows; r++) {
+      for (let c = 0; c < m.cols; c++) {
+        if (matrixNumber(m.data[r][c]) !== (r === c ? 1 : 0)) return false;
+      }
+    }
+    return true;
+  },
+
+  isDiagonal(m: PineMatrix<any>): boolean {
+    if (m.rows !== m.cols) return false;
+    for (let r = 0; r < m.rows; r++) {
+      for (let c = 0; c < m.cols; c++) {
+        if (r !== c && matrixNumber(m.data[r][c]) !== 0) return false;
+      }
+    }
+    return true;
+  },
+
+  isAntidiagonal(m: PineMatrix<any>): boolean {
+    if (m.rows !== m.cols) return false;
+    for (let r = 0; r < m.rows; r++) {
+      for (let c = 0; c < m.cols; c++) {
+        if (r + c !== m.cols - 1 && matrixNumber(m.data[r][c]) !== 0) return false;
+      }
+    }
+    return true;
+  },
+
+  isSymmetric(m: PineMatrix<any>): boolean {
+    if (m.rows !== m.cols) return false;
+    for (let r = 0; r < m.rows; r++) {
+      for (let c = 0; c < m.cols; c++) {
+        if (matrixNumber(m.data[r][c]) !== matrixNumber(m.data[c][r])) return false;
+      }
+    }
+    return true;
+  },
+
+  isAntisymmetric(m: PineMatrix<any>): boolean {
+    if (m.rows !== m.cols) return false;
+    for (let r = 0; r < m.rows; r++) {
+      for (let c = 0; c < m.cols; c++) {
+        if (matrixNumber(m.data[r][c]) !== -matrixNumber(m.data[c][r])) return false;
+      }
+    }
+    return true;
+  },
+
+  isTriangular(m: PineMatrix<any>): boolean {
+    if (m.rows !== m.cols) return false;
+    let upper = true;
+    let lower = true;
+    for (let r = 0; r < m.rows; r++) {
+      for (let c = 0; c < m.cols; c++) {
+        if (r > c && matrixNumber(m.data[r][c]) !== 0) upper = false;
+        if (r < c && matrixNumber(m.data[r][c]) !== 0) lower = false;
+      }
+    }
+    return upper || lower;
+  },
+
+  isStochastic(m: PineMatrix<any>): boolean {
+    for (const row of m.data) {
+      let sum = 0;
+      for (const value of row) {
+        const number = matrixNumber(value);
+        if (number < 0 || number > 1) return false;
+        sum += number;
+      }
+      if (Math.abs(sum - 1) > 1e-9) return false;
+    }
+    return true;
   },
 };

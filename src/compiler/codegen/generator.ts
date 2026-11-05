@@ -25,7 +25,7 @@ export interface GenerateResult {
 const KNOWN_NAMESPACES = new Set([
   'ta', 'math', 'str', 'array', 'color', 'line', 'label', 'box', 'table',
   'request', 'syminfo', 'timeframe', 'barstate', 'strategy', 'log', 'ticker',
-  'map', 'matrix', 'input', 'chart', 'runtime',
+  'map', 'matrix', 'input', 'chart', 'runtime', 'linefill', 'polyline',
 ]);
 
 /** Array methods that can appear on an arbitrary member expression. */
@@ -975,7 +975,9 @@ export class CodeGenerator {
         calleeName === 'input.bool' || calleeName === 'input.string' || calleeName === 'input.source' ||
         calleeName === 'input.color' || calleeName === 'input.timeframe' ||
         calleeName === 'input.session' || calleeName === 'input.symbol' || calleeName === 'input.price' ||
-        calleeName === 'input.text_area') {
+        calleeName === 'input.text_area' ||
+        calleeName === 'input.time' ||
+        calleeName === 'input.enum') {
       return this.genInputCall(call);
     }
 
@@ -1299,6 +1301,8 @@ export class CodeGenerator {
     else if (calleeName === 'input.symbol') type = 'symbol';
     else if (calleeName === 'input.price') type = 'price';
     else if (calleeName === 'input.text_area') type = 'text_area';
+    else if (calleeName === 'input.time') type = 'time';
+    else if (calleeName === 'input.enum') type = 'enum';
 
     call.args.forEach((arg, index) => {
       if (arg.name === 'defval' || (arg.name === null && index === 0)) {
@@ -1328,9 +1332,9 @@ export class CodeGenerator {
       return `__rt.getSourceInput(${JSON.stringify(id)}, ${fallback})`;
     }
     if (defaultValue === undefined) {
-      if (type === 'int' || type === 'float' || type === 'price') defaultValue = 0;
+      if (type === 'int' || type === 'float' || type === 'price' || type === 'time') defaultValue = 0;
       else if (type === 'bool') defaultValue = false;
-      else if (type === 'string' || type === 'text_area' || type === 'timeframe' || type === 'session' || type === 'symbol') defaultValue = '';
+      else if (type === 'string' || type === 'text_area' || type === 'timeframe' || type === 'session' || type === 'symbol' || type === 'enum') defaultValue = '';
     }
 
     // Input ids are user-visible settings keys. Titles keep them readable, but
@@ -1715,6 +1719,8 @@ export class CodeGenerator {
 
     // table: table.new, table.cell, table.merge_cells, table.delete, table.clear
     if (objStr === 'table') return `__rt.table.${prop}`;
+    if (objStr === 'linefill') return `__rt.linefill.${prop}`;
+    if (objStr === 'polyline') return `__rt.polyline.${prop}`;
 
     // barstate properties
     if (objStr === '__rt.barstate' || objStr === 'barstate') {

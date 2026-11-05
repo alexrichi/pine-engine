@@ -15,6 +15,8 @@ import { createLineModule } from './builtins/line';
 import { createLabelModule } from './builtins/label';
 import { createBoxModule } from './builtins/box';
 import { createTableModule } from './builtins/table';
+import { createLinefillModule } from './builtins/linefill';
+import { createPolylineModule } from './builtins/polyline';
 import { createTimeFunctions } from './builtins/time-functions';
 import {
   PlotData,
@@ -72,6 +74,8 @@ export interface RuntimeContext {
   label: ReturnType<typeof createLabelModule>;
   box: ReturnType<typeof createBoxModule>;
   table: ReturnType<typeof createTableModule>;
+  linefill: ReturnType<typeof createLinefillModule>;
+  polyline: ReturnType<typeof createPolylineModule>;
 
   // Time functions (top-level)
   time_close: number;
@@ -88,13 +92,19 @@ export interface RuntimeContext {
   timeInSession(timeframe?: string, session?: string, timezone?: string): number | symbol;
 
   // Request module
-  request: { security: (...args: any[]) => any };
+  request: { security: (...args: any[]) => any; [key: string]: any };
 
   // Ticker module
   ticker: {
     new: (...args: any[]) => string;
     standard: (symbol: unknown) => string;
     modify: (symbol: unknown, ...args: unknown[]) => string;
+    inherit: (symbol: unknown, ...args: unknown[]) => string;
+    heikinashi: (symbol: unknown) => string;
+    renko: (symbol: unknown) => string;
+    kagi: (symbol: unknown) => string;
+    linebreak: (symbol: unknown) => string;
+    pointfigure: (symbol: unknown) => string;
   };
 
   // Session module
@@ -233,6 +243,26 @@ function parseSessionState(barTimeMs: number, _timezone: string): { ismarket: bo
   return { ismarket, ispremarket, ispostmarket };
 }
 
+const TICKER_MODIFIERS = new Set(['heikinashi', 'renko', 'kagi', 'linebreak', 'pointfigure']);
+
+function splitTickerModifier(symbol: string): { symbol: string; modifier: string | null } {
+  const at = symbol.lastIndexOf(';');
+  if (at <= 0 || at === symbol.length - 1) return { symbol, modifier: null };
+  const modifier = symbol.slice(at + 1).toLowerCase();
+  if (!TICKER_MODIFIERS.has(modifier) && modifier !== 'standard') {
+    return { symbol, modifier: null };
+  }
+  return { symbol: symbol.slice(0, at), modifier };
+}
+
+function stripTickerModifier(symbol: string): string {
+  return splitTickerModifier(symbol).symbol;
+}
+
+function withTickerModifier(symbol: string, modifier: string): string {
+  return `${stripTickerModifier(symbol)};${modifier}`;
+}
+
 export function createContext(
   builtins: BuiltinVariables,
   ta: TaModule,
@@ -271,6 +301,8 @@ export function createContext(
   const labelModule = createLabelModule();
   const boxModule = createBoxModule();
   const tableModule = createTableModule();
+  const linefillModule = createLinefillModule();
+  const polylineModule = createPolylineModule();
   const timeFns = createTimeFunctions(() => builtins.time.get(0));
 
   // Unsupported builtins resolve to a value that is both callable and `na`.
@@ -324,7 +356,7 @@ export function createContext(
       tickerid: symbol,
       ticker: symbol.includes(':') ? symbol.split(':').pop()! : symbol,
     }),
-    timeframe: createTimeframe(timeframePeriod),
+    timeframe: createTimeframe(timeframePeriod, () => builtins.time.get(0)),
     chart: {
       bg_color: '#131722',
       fg_color: '#d1d4dc',
@@ -337,6 +369,8 @@ export function createContext(
     label: labelModule,
     box: boxModule,
     table: tableModule,
+    linefill: linefillModule,
+    polyline: polylineModule,
 
     // Time functions
     hour: timeFns.hour,
@@ -361,10 +395,28 @@ export function createContext(
         return args.length >= 2 ? `${args[0]}:${args[1]}` : String(args[0] ?? '');
       },
       standard(symbol: unknown): string {
-        return String(symbol ?? '');
+        return stripTickerModifier(String(symbol ?? ''));
       },
       modify(symbol: unknown, ..._args: unknown[]): string {
         return String(symbol ?? '');
+      },
+      inherit(symbol: unknown, ..._args: unknown[]): string {
+        return String(symbol ?? '');
+      },
+      heikinashi(symbol: unknown): string {
+        return withTickerModifier(String(symbol ?? ''), 'heikinashi');
+      },
+      renko(symbol: unknown): string {
+        return withTickerModifier(String(symbol ?? ''), 'renko');
+      },
+      kagi(symbol: unknown): string {
+        return withTickerModifier(String(symbol ?? ''), 'kagi');
+      },
+      linebreak(symbol: unknown): string {
+        return withTickerModifier(String(symbol ?? ''), 'linebreak');
+      },
+      pointfigure(symbol: unknown): string {
+        return withTickerModifier(String(symbol ?? ''), 'pointfigure');
       },
     },
 
@@ -694,6 +746,8 @@ export function createContext(
   ctx.label = guarded('label', ctx.label);
   ctx.box = guarded('box', ctx.box);
   ctx.table = guarded('table', ctx.table);
+  ctx.linefill = guarded('linefill', ctx.linefill);
+  ctx.polyline = guarded('polyline', ctx.polyline);
   ctx.strategy = guarded('strategy', ctx.strategy);
   ctx.syminfo = guarded('syminfo', ctx.syminfo);
   ctx.timeframe = guarded('timeframe', ctx.timeframe);

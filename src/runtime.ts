@@ -56,7 +56,7 @@ function inputValue(value: unknown, type: string): number | boolean | string {
   }
   if (type === 'bool') return false;
   if (type === 'string' || type === 'color' || type === 'source' || type === 'timeframe' ||
-      type === 'session' || type === 'symbol' || type === 'text_area') {
+      type === 'session' || type === 'symbol' || type === 'text_area' || type === 'enum') {
     return '';
   }
   return 0;

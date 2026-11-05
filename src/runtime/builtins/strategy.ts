@@ -52,6 +52,10 @@ export interface StrategyEngine {
   order(id: string, direction: string, qty: number, limit?: number, stop?: number): void;
   cancel(id: string): void;
   cancelAll(): void;
+  closeAll(): void;
+  convertToAccount(value: number): number;
+  convertToSymbol(value: number): number;
+  defaultEntryQty(value?: number): number;
 
   // Properties
   position_size: number;
@@ -357,6 +361,29 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
     cancelAll(): void {
       pendingOrders.length = 0;
       queuedOrders.length = 0;
+    },
+
+    closeAll(): void {
+      if (!position) return;
+      queuedOrders.push({
+        id: '__close_all__',
+        direction: position.direction === 'long' ? 'short' : 'long',
+        qty: position.qty,
+        type: 'market',
+        isEntry: false,
+      });
+    },
+
+    convertToAccount(value: number): number {
+      return value;
+    },
+
+    convertToSymbol(value: number): number {
+      return value;
+    },
+
+    defaultEntryQty(value?: number): number {
+      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
     },
 
     // Properties

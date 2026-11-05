@@ -1,5 +1,7 @@
 // Pine Script v6 timeframe built-in module
 
+import { canonicalTimeframe } from './request';
+
 export interface TimeframeInfo {
   period: string;
   multiplier: number;
@@ -13,6 +15,8 @@ export interface TimeframeInfo {
   isseconds: boolean;
   in_seconds: (tf?: string) => number;
   inSeconds: (tf?: string) => number;
+  from_seconds: (seconds: number) => string;
+  fromSeconds: (seconds: number) => string;
   change: (tf?: string) => boolean;
 }
 
@@ -51,8 +55,9 @@ export function inSeconds(tf: string): number {
  *
  * Minutes < 60 are classified as isminutes; >= 60 as ishours.
  */
-export function createTimeframe(periodStr?: string): TimeframeInfo {
+export function createTimeframe(periodStr?: string, getTime?: () => number): TimeframeInfo {
   const period = periodStr ?? 'D';
+  const seenPeriods = new Map<string, string>();
 
   const isDWM = period === 'D' || period === 'W' || period === 'M';
   const isNumeric = /^\d+$/.test(period);
@@ -80,8 +85,45 @@ export function createTimeframe(periodStr?: string): TimeframeInfo {
     inSeconds(tf?: string): number {
       return inSeconds(tf ?? period);
     },
-    change(_tf?: string): boolean {
-      return false;
+    from_seconds(seconds: number): string {
+      return fromSeconds(seconds);
+    },
+    fromSeconds(seconds: number): string {
+      return fromSeconds(seconds);
+    },
+    change(tf?: string): boolean {
+      if (!getTime) return false;
+      const time = getTime();
+      if (!Number.isFinite(time)) return false;
+      const target = canonicalTimeframe(tf ?? period);
+      const key = periodKey(time, target);
+      const previous = seenPeriods.get(target);
+      seenPeriods.set(target, key);
+      return previous === undefined || previous !== key;
     },
   };
+}
+
+function fromSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  if (seconds % 2592000 === 0) return `${seconds / 2592000}M`;
+  if (seconds % 604800 === 0) return `${seconds / 604800}W`;
+  if (seconds % 86400 === 0) return `${seconds / 86400}D`;
+  if (seconds % 60 === 0) return `${seconds / 60}`;
+  return `${seconds}S`;
+}
+
+function periodKey(timeMs: number, timeframe: string): string {
+  if (timeframe === 'D') return new Date(timeMs).toISOString().slice(0, 10);
+  if (timeframe === 'W') {
+    const date = new Date(timeMs);
+    const day = date.getUTCDay();
+    const monday = new Date(date);
+    monday.setUTCDate(date.getUTCDate() - ((day + 6) % 7));
+    return monday.toISOString().slice(0, 10);
+  }
+  if (timeframe === 'M') return new Date(timeMs).toISOString().slice(0, 7);
+  const minutes = parseInt(timeframe, 10);
+  const bucket = Number.isFinite(minutes) && minutes > 0 ? minutes : 1;
+  return String(Math.floor(timeMs / (bucket * 60_000)));
 }

@@ -1052,7 +1052,8 @@ export class Parser {
           this.check(TokenType.FLOAT_TYPE) ||
           this.check(TokenType.BOOL_TYPE) ||
           this.check(TokenType.STRING_TYPE) ||
-          this.check(TokenType.COLOR_TYPE);
+          this.check(TokenType.COLOR_TYPE) ||
+          this.check(TokenType.ENUM);
         if (!isProperty) {
           this.reporter.error(
             `Expected property name, got '${this.peek().value}' (${this.peek().type})`,

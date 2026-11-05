@@ -15,7 +15,25 @@ export interface BoxObject {
   text_size: string;
   text_halign: string;
   text_valign: string;
+  text_font_family: string;
+  text_formatting: string;
+  text_wrap: boolean;
   _deleted: boolean;
+}
+
+function pointXY(point: unknown): { x: number; y: number } | null {
+  if (Array.isArray(point) && point.length >= 2) {
+    const x = Number(point[0]);
+    const y = Number(point[1]);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  }
+  if (point && typeof point === 'object') {
+    const value = point as { x?: unknown; y?: unknown };
+    const x = Number(value.x);
+    const y = Number(value.y);
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  }
+  return null;
 }
 
 export function createBoxModule() {
@@ -40,6 +58,9 @@ export function createBoxModule() {
         text_size?: string;
         text_halign?: string;
         text_valign?: string;
+        text_font_family?: string;
+        text_formatting?: string;
+        text_wrap?: boolean | string;
       }
     ): BoxObject {
       const box: BoxObject = {
@@ -59,6 +80,9 @@ export function createBoxModule() {
         text_size: opts?.text_size ?? 'auto',
         text_halign: opts?.text_halign ?? 'center',
         text_valign: opts?.text_valign ?? 'center',
+        text_font_family: opts?.text_font_family ?? 'default',
+        text_formatting: opts?.text_formatting ?? '',
+        text_wrap: opts?.text_wrap === true || opts?.text_wrap === 'wrap_auto',
         _deleted: false,
       };
       boxes.push(box);
@@ -94,6 +118,36 @@ export function createBoxModule() {
     set_rightbottom(box: BoxObject, right: number, bottom: number): void {
       box.right = right;
       box.bottom = bottom;
+    },
+
+    set_top_left_point(box: BoxObject, point: unknown): void {
+      const value = pointXY(point);
+      if (!value) return;
+      box.left = value.x;
+      box.top = value.y;
+    },
+
+    set_bottom_right_point(box: BoxObject, point: unknown): void {
+      const value = pointXY(point);
+      if (!value) return;
+      box.right = value.x;
+      box.bottom = value.y;
+    },
+
+    set_xloc(box: BoxObject, val: string): void {
+      box.xloc = val;
+    },
+
+    set_text_font_family(box: BoxObject, val: string): void {
+      box.text_font_family = val;
+    },
+
+    set_text_formatting(box: BoxObject, val: string): void {
+      box.text_formatting = val;
+    },
+
+    set_text_wrap(box: BoxObject, val: boolean | string): void {
+      box.text_wrap = val === true || val === 'wrap_auto';
     },
 
     set_bgcolor(box: BoxObject, val: string): void {
@@ -170,6 +224,9 @@ export function createBoxModule() {
         text_size: box.text_size,
         text_halign: box.text_halign,
         text_valign: box.text_valign,
+        text_font_family: box.text_font_family,
+        text_formatting: box.text_formatting,
+        text_wrap: box.text_wrap,
         _deleted: false,
       };
       boxes.push(copied);
