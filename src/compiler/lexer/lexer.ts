@@ -20,6 +20,8 @@ export class Lexer {
   private lineIndent: number = 0;
   /** Indents of open `switch` headers; arms may start with `-`/`not`/`and`/`or`. */
   private switchIndents: number[] = [];
+  /** Indent of the first arm in each open switch, null until the first arm line. */
+  private switchArmIndents: Array<number | null> = [];
 
   constructor(source: string, reporter: DiagnosticReporter) {
     this.source = source;
@@ -91,6 +93,11 @@ export class Lexer {
     while (this.switchIndents.length > 0 &&
            indent <= this.switchIndents[this.switchIndents.length - 1]!) {
       this.switchIndents.pop();
+      this.switchArmIndents.pop();
+    }
+    if (this.switchIndents.length > 0) {
+      const armIndex = this.switchArmIndents.length - 1;
+      if (this.switchArmIndents[armIndex] == null) this.switchArmIndents[armIndex] = indent;
     }
     if (this.continuation) {
       // A line continuation is part of the previous logical line; its
@@ -132,12 +139,19 @@ export class Lexer {
       const leadingOperator = !leadingArrow && leading !== '' && '+-*/%?:<>=&|'.includes(leading);
       const leadingWord = this.peekLeadingWordOperator();
       // `switch` ends its line; the next line starts a case even when the case
-      // condition begins with `not`/`and`/`or`.
+      // condition begins with `not`/`and`/`or`. Inside a switch, only a line at
+      // the arm indent starts a case; deeper lines still continue an expression.
       const afterSwitch = !!last && last.type === TokenType.SWITCH;
-      const inSwitch = this.switchIndents.length > 0;
+      let armStart = false;
+      if (!afterSwitch && this.switchIndents.length > 0) {
+        const switchIndent = this.switchIndents[this.switchIndents.length - 1]!;
+        const armIndent = this.switchArmIndents[this.switchArmIndents.length - 1]!;
+        const nextIndent = this.peekNextLineIndent();
+        armStart = nextIndent > switchIndent && (armIndent === null || nextIndent === armIndent);
+      }
       const continued =
         !afterSwitch &&
-        !inSwitch &&
+        !armStart &&
         (this.depth > 0 ||
           leadingOperator ||
           leadingWord ||
@@ -363,7 +377,10 @@ export class Lexer {
     const kwType = KEYWORDS[value];
     if (kwType !== undefined) {
       this.tokens.push({ type: kwType, value, loc });
-      if (kwType === TokenType.SWITCH) this.switchIndents.push(this.lineIndent);
+      if (kwType === TokenType.SWITCH) {
+        this.switchIndents.push(this.lineIndent);
+        this.switchArmIndents.push(null);
+      }
     } else {
       this.tokens.push({ type: TokenType.IDENTIFIER, value, loc });
     }
@@ -545,6 +562,25 @@ export class Lexer {
     }
     const ch = this.source[index];
     return ch === undefined || ch === '\n' || ch === '\r' ? '' : ch;
+  }
+
+  /** Indentation of the line that starts at the current position. */
+  private peekNextLineIndent(): number {
+    let index = this.pos;
+    let indent = 0;
+    while (index < this.source.length) {
+      const ch = this.source[index];
+      if (ch === ' ') {
+        indent++;
+        index++;
+      } else if (ch === '\t') {
+        indent += 4;
+        index++;
+      } else {
+        break;
+      }
+    }
+    return indent;
   }
 
   /** A continuation line may start with a word operator (`and`, `or`, `not`). */

@@ -29,6 +29,21 @@ plot(pick(-1, false), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(2);
   });
 
+  it('keeps leading-operator continuations inside switch arms', () => {
+    const result = run(`//@version=6
+indicator("switch continuation")
+pick(int n) =>
+    switch
+        n > 0
+            and n < 5 => 1
+        n >= 5 => 2
+        => 3
+plot(pick(2), "v")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(1);
+  });
+
   it('returns the last value of a multi-statement if expression', () => {
     const result = run(`//@version=6
 indicator("if")
