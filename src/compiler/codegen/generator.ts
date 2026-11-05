@@ -21,6 +21,53 @@ export interface GenerateResult {
   metadata: ScriptMetadata;
 }
 
+// Pine identifiers may be JavaScript reserved words (`new` is a common variable
+// name in Library scripts). Rename only those; everything else stays verbatim.
+const JS_RESERVED = new Set([
+  'arguments', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue',
+  'debugger', 'default', 'delete', 'do', 'else', 'enum', 'eval', 'export',
+  'extends', 'false', 'finally', 'for', 'function', 'if', 'implements',
+  'import', 'in', 'instanceof', 'interface', 'let', 'new', 'null', 'package',
+  'private', 'protected', 'public', 'return', 'static', 'super', 'switch',
+  'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with',
+  'yield',
+]);
+
+function safeIdent(name: string): string {
+  return JS_RESERVED.has(name) ? `__pine_${name}` : name;
+}
+
+const ARRAY_METHOD_RUNTIME: Record<string, string> = {
+  binary_search: 'binarySearch',
+  binary_search_leftmost: 'binarySearchLeftmost',
+  binary_search_rightmost: 'binarySearchRightmost',
+  percentile_linear_interpolation: 'percentileLinearInterpolation',
+  percentile_nearest_rank: 'percentileNearestRank',
+};
+
+// Drawing methods whose name identifies the owning namespace even when the
+// receiver's type was not tracked (e.g. `l = array.get(lines, i)`).
+const DRAWING_METHOD_NAMESPACES: Record<string, string> = {
+  set_x1: 'line', set_y1: 'line', set_x2: 'line', set_y2: 'line',
+  set_xy1: 'line', set_xy2: 'line', set_extend: 'line', set_width: 'line',
+  get_x1: 'line', get_y1: 'line', get_x2: 'line', get_y2: 'line', get_price: 'line',
+  set_x: 'label', set_y: 'label', set_xy: 'label', set_yloc: 'label',
+  set_text: 'label', set_tooltip: 'label', set_textcolor: 'label',
+  set_size: 'label', set_textalign: 'label',
+  get_x: 'label', get_y: 'label', get_text: 'label',
+  set_left: 'box', set_top: 'box', set_right: 'box', set_bottom: 'box',
+  set_lefttop: 'box', set_rightbottom: 'box', set_bgcolor: 'box',
+  set_border_color: 'box', set_border_width: 'box', set_border_style: 'box',
+  set_text_color: 'box', set_text_size: 'box', set_text_halign: 'box',
+  set_text_valign: 'box',
+  get_left: 'box', get_top: 'box', get_right: 'box', get_bottom: 'box',
+  cell: 'table', merge_cells: 'table', set_position: 'table',
+  set_frame_color: 'table', set_frame_width: 'table',
+  cell_set_text: 'table', cell_set_bgcolor: 'table', cell_set_text_color: 'table',
+  cell_set_text_size: 'table', cell_set_text_halign: 'table',
+  cell_set_text_valign: 'table', cell_set_tooltip: 'table',
+};
+
 // Known namespaces that should NOT be treated as method-call objects
 const KNOWN_NAMESPACES = new Set([
   'ta', 'math', 'str', 'array', 'color', 'line', 'label', 'box', 'table',
@@ -424,16 +471,18 @@ export class CodeGenerator {
   private genVarDecl(decl: VariableDeclaration, out: string[], isTopLevel = false): void {
     if (decl.isTupleDestructure && decl.tupleNames) {
       // [a, b, c] = ta.macd(...)
-      const names = decl.tupleNames.join(', ');
+      const tupleNames = decl.tupleNames.map(safeIdent);
+      const names = tupleNames.join(', ');
       const valStr = this.genExpr(decl.value);
       out.push(
         this.indent() +
           `var [${names}] = __rt.tuple(${valStr}, ${decl.tupleNames.length});`,
       );
       // Track history and types for each tuple name
-      for (const tname of decl.tupleNames) {
+      for (let index = 0; index < decl.tupleNames.length; index += 1) {
+        const tname = decl.tupleNames[index]!;
         if (this.historyVars.has(tname)) {
-          out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(tname)}, ${tname});`);
+          out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(tname)}, ${tupleNames[index]});`);
         }
       }
       return;
@@ -481,17 +530,17 @@ export class CodeGenerator {
     } else {
       // Plain declaration
       const valStr = this.genExpr(decl.value);
-      out.push(this.indent() + `var ${name} = ${valStr};`);
+      out.push(this.indent() + `var ${safeIdent(name)} = ${valStr};`);
       // Emit userSeriesSet for history-tracked variables
       if (this.historyVars.has(name)) {
-        out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${name});`);
+        out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${safeIdent(name)});`);
       }
     }
   }
 
   private genFunctionDecl(decl: FunctionDeclaration, out: string[]): void {
-    const params = decl.params.map(p => p.name).join(', ');
-    out.push(this.indent() + `function ${decl.name}(${params}) {`);
+    const params = decl.params.map(p => safeIdent(p.name)).join(', ');
+    out.push(this.indent() + `function ${safeIdent(decl.name)}(${params}) {`);
     this.indentLevel++;
     if (Array.isArray(decl.body)) {
       // A block-bodied Pine function returns the value of its last statement,
@@ -599,7 +648,7 @@ export class CodeGenerator {
     this.udtFieldOrder.set(name, decl.fields.map(f => f.name));
 
     // Constructor function
-    out.push(this.indent() + `function ${name}(fields) {`);
+    out.push(this.indent() + `function ${safeIdent(name)}(fields) {`);
     this.indentLevel++;
     out.push(this.indent() + 'fields = fields || {};');
     for (const field of decl.fields) {
@@ -636,10 +685,10 @@ export class CodeGenerator {
     // A method on a builtin drawing type is a plain function with the object as
     // its first parameter; there is no class to attach a prototype to.
     if (this.builtinMethods.has(decl.name)) {
-      const allParams = [decl.selfName, ...decl.params.map(p => p.name)].join(', ');
-      out.push(this.indent() + `function ${decl.name}(${allParams}) {`);
+      const allParams = [decl.selfName, ...decl.params.map(p => p.name)].map(safeIdent).join(', ');
+      out.push(this.indent() + `function ${safeIdent(decl.name)}(${allParams}) {`);
       this.indentLevel++;
-      out.push(this.indent() + `var self = ${decl.selfName};`);
+      out.push(this.indent() + `var self = ${safeIdent(decl.selfName)};`);
       if (Array.isArray(decl.body)) {
         this.genTailBlock(decl.body, out);
       } else {
@@ -650,13 +699,13 @@ export class CodeGenerator {
       return;
     }
 
-    out.push(this.indent() + `${typeName}.prototype.${decl.name} = function(${params}) {`);
+    out.push(this.indent() + `${safeIdent(typeName)}.prototype.${decl.name} = function(${params}) {`);
     this.indentLevel++;
     out.push(this.indent() + 'var self = this;');
     // Pine lets the receiver parameter keep its own name (`IS`, `Gap`, ...).
     if (decl.selfName !== 'self' && decl.selfName !== 'this' &&
         /^[A-Za-z_]\w*$/.test(decl.selfName)) {
-      out.push(this.indent() + `var ${decl.selfName} = this;`);
+      out.push(this.indent() + `var ${safeIdent(decl.selfName)} = this;`);
     }
     if (Array.isArray(decl.body)) {
       this.generateBody(decl.body, out);
@@ -682,7 +731,7 @@ export class CodeGenerator {
       }
     }
 
-    return `${typeName}.new({${parts.join(', ')}})`;
+    return `${safeIdent(typeName)}.new({${parts.join(', ')}})`;
   }
 
   private genAssignment(stmt: AssignmentStatement, out: string[]): void {
@@ -768,7 +817,7 @@ export class CodeGenerator {
     const end = this.genExpr(stmt.end);
     const step = stmt.step ? this.genExpr(stmt.step) : '1';
     const v = stmt.variable;
-    out.push(this.indent() + `for (var ${v} = ${start}; ${v} <= ${end}; ${v} += ${step}) {`);
+    out.push(this.indent() + `for (var ${safeIdent(v)} = ${start}; ${safeIdent(v)} <= ${end}; ${safeIdent(v)} += ${step}) {`);
     this.indentLevel++;
     this.generateBody(stmt.body, out);
     this.indentLevel--;
@@ -780,15 +829,15 @@ export class CodeGenerator {
     const v = stmt.variable;
     if (stmt.indexVariable) {
       // for [index, value] in arr → for (var __idx = 0; __idx < arr.length; __idx++) { var index = __idx; var value = arr[__idx]; ... }
-      const idx = stmt.indexVariable;
+      const idx = safeIdent(stmt.indexVariable);
       out.push(this.indent() + `for (var ${idx} = 0; ${idx} < ${iter}.length; ${idx}++) {`);
       this.indentLevel++;
-      out.push(this.indent() + `var ${v} = ${iter}[${idx}];`);
+      out.push(this.indent() + `var ${safeIdent(v)} = ${iter}[${idx}];`);
       this.generateBody(stmt.body, out);
       this.indentLevel--;
       out.push(this.indent() + '}');
     } else {
-      out.push(this.indent() + `for (var ${v} of ${iter}) {`);
+      out.push(this.indent() + `for (var ${safeIdent(v)} of ${iter}) {`);
       this.indentLevel++;
       this.generateBody(stmt.body, out);
       this.indentLevel--;
@@ -925,11 +974,11 @@ export class CodeGenerator {
     // barstate properties accessed as top-level identifier
     if (name === 'barstate') return '__rt.barstate';
 
-    // Time functions used as variables (e.g. hour, minute — they're both functions and vars in Pine)
+    // Time functions used as variables (e.g. hour, minute - they're both functions and vars in Pine)
     const timeFnVars = new Set(['hour', 'minute', 'second', 'dayofweek', 'dayofmonth', 'month', 'year']);
     if (timeFnVars.has(name)) return `__rt.${name}()`;
 
-    return name;
+    return safeIdent(name);
   }
 
   private genBinary(expr: BinaryExpression): string {
@@ -1168,20 +1217,20 @@ export class CodeGenerator {
       if (mem.object.kind !== 'IdentifierExpression' && ARRAY_METHODS.has(mem.property)) {
         const objExpr = this.genExpr(mem.object);
         const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-        return `__rt.array.${mem.property}(${objExpr}${argsStr})`;
+        const runtime = ARRAY_METHOD_RUNTIME[mem.property] ?? mem.property;
+        return `__rt.array.${runtime}(${objExpr}${argsStr})`;
       }
       // Only if object is NOT a known namespace
       if (mem.object.kind === 'IdentifierExpression') {
         const objName = (mem.object as IdentifierExpression).name;
-        if (!KNOWN_NAMESPACES.has(objName)) {
-          const method = mem.property;
+        if (!KNOWN_NAMESPACES.has(objName)) {          const method = mem.property;
 
           // Check if this is a UDT method call — emit as direct prototype method call
           const objVarType = this.varTypes.get(objName);
           if (this.builtinMethods.has(method)) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-            return `${method}(${objExpr}${argsStr})`;
+            return `${safeIdent(method)}(${objExpr}${argsStr})`;
           }
           if ((objVarType && this.udtTypes.has(objVarType)) || this.udtMethods.has(method)) {
             const objExpr = this.genExpr(mem.object);
@@ -1239,18 +1288,35 @@ export class CodeGenerator {
             else if (matrixMethods.has(method)) {
               ns = this.varTypes.get(objName) === 'matrix' ? 'matrix' : null;
             }
-            else if (drawingMethods.has(method)) ns = null; // can't disambiguate without type
+            else if (drawingMethods.has(method)) {
+              // The method name identifies the drawing type when the receiver's
+              // type is unknown (array element, function return, ...).
+              ns = DRAWING_METHOD_NAMESPACES[method] ?? null;
+            }
           }
           if (ns) {
             const objExpr = this.genExpr(mem.object);
             const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
-            return `__rt.${ns}.${method}(${objExpr}${argsStr})`;
+            const runtime = ns === 'array' ? ARRAY_METHOD_RUNTIME[method] ?? method : method;
+            return `__rt.${ns}.${runtime}(${objExpr}${argsStr})`;
           }
+        }
+      }
+      // A drawing method on a field or call result (`element.bull.set_rightbottom`).
+      if (mem.object.kind !== 'IdentifierExpression') {
+        const ns = DRAWING_METHOD_NAMESPACES[mem.property];
+        if (ns) {
+          const objExpr = this.genExpr(mem.object);
+          const argsStr = call.args.length > 0 ? ', ' + this.genArgs(call.args) : '';
+          return `__rt.${ns}.${mem.property}(${objExpr}${argsStr})`;
         }
       }
     }
 
     // Runtime built times and alert stubs.
+    if (calleeName === 'color') {
+      return `__rt.colorCall(${this.genArgs(call.args)})`;
+    }
     if (calleeName === 'alert') {
       return `__rt.alert(${this.genArgs(call.args)})`;
     }

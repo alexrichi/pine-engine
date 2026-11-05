@@ -94,6 +94,7 @@ const NAMESPACE_RETURN_TYPES: Record<string, PineType> = {
   'ta.sma': FLOAT_SERIES,
   'ta.ema': FLOAT_SERIES,
   'ta.rsi': FLOAT_SERIES,
+  'ta.tsi': FLOAT_SERIES,
   'ta.macd': FLOAT_SERIES,
   'ta.bbands': FLOAT_SERIES,
   'ta.atr': FLOAT_SERIES,

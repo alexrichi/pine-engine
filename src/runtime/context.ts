@@ -169,6 +169,9 @@ export interface RuntimeContext {
   fixnan: typeof fixnan;
   na: typeof NA;
 
+  /** Pine's `color(value)` cast; `na` becomes transparent. */
+  colorCall(value: unknown): string;
+
   // User variable series history
   userSeriesSet(name: string, value: unknown): void;
   userSeriesGet(name: string, offset: number): unknown;
@@ -774,6 +777,9 @@ export function createContext(
     nz,
     fixnan,
     na: NA,
+    colorCall(value: unknown): string {
+      return typeof value === 'string' && value.length > 0 ? value : '#00000000';
+    },
 
     strategy: strategyEngine,
 

@@ -111,6 +111,7 @@ function calcEmaInternal(
 export interface TaModule {
   sma(source: Series<number>, length: number, id?: string): number;
   ema(source: Series<number>, length: number, id?: string): number;
+  tsi(source: Series<number>, shortLength?: number, longLength?: number, id?: string): number;
   rsi(source: Series<number>, length: number, id?: string): number;
   macd(
     source: Series<number>,
@@ -302,6 +303,26 @@ export function createTaModule(
       const newVal = calcEmaInternal(current as number, state.prev, length);
       emaState.set(id, { prev: newVal, prevBarIndex: barIndex });
       return newVal;
+    },
+
+    tsi(
+      source: Series<number>,
+      shortLength: number = 3,
+      longLength: number = 10,
+      id: string = 'default_tsi',
+    ): number {
+      const current = source.get(0);
+      if (isNa(current)) return NA as unknown as number;
+      const previous = source.get(1);
+      const change = isNa(previous) ? (NA as unknown as number) : (current as number) - (previous as number);
+      const changeSeries = asSeries(change, id, 0);
+      const absSeries = asSeries(isNa(change) ? NA : Math.abs(change), id, 1);
+      const longChange = this.ema(changeSeries, longLength, `${id}:long`);
+      const longAbs = this.ema(absSeries, longLength, `${id}:longAbs`);
+      const shortChange = this.ema(asSeries(longChange, id, 2), shortLength, `${id}:short`);
+      const shortAbs = this.ema(asSeries(longAbs, id, 3), shortLength, `${id}:shortAbs`);
+      if (isNa(shortChange) || isNa(shortAbs) || shortAbs === 0) return NA as unknown as number;
+      return (100 * (shortChange as number)) / (shortAbs as number);
     },
 
     rsi(source: Series<number>, length: number, id: string = 'default_rsi'): number {

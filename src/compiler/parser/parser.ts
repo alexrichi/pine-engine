@@ -245,7 +245,12 @@ export class Parser {
         return this.parseEnumDecl();
 
       case TokenType.METHOD:
-        return this.parseMethodDecl();
+        // `method` is also a legal variable name (`method = input.string(...)`).
+        // Only parse a declaration when it is followed by `name(`.
+        if (this.peekAt(1)?.type === TokenType.IDENTIFIER && this.peekAt(2)?.type === TokenType.LPAREN) {
+          return this.parseMethodDecl();
+        }
+        return this.parseExprOrAssign();
 
       case TokenType.LBRACKET:
         // Only treat as tuple destructure if pattern is [IDENT, ...] =
@@ -1064,6 +1069,13 @@ export class Parser {
         const propTok = this.advance();
         expr = { kind: 'MemberExpression', object: expr, property: propTok.value, loc: expr.loc } as MemberExpression;
       } else if (this.check(TokenType.LBRACKET)) {
+        // A new statement can start with `[a, b] = ...` right after a
+        // switch expression consumed its trailing newline; postfix indexing
+        // must not cross that line boundary.
+        const previous = this.tokens[this.pos - 1];
+        if (previous && (previous.type === TokenType.DEDENT || previous.type === TokenType.NEWLINE || previous.type === TokenType.INDENT)) {
+          break;
+        }
         this.advance(); // consume [
         const index = this.parseExpression();
         this.expect(TokenType.RBRACKET, 'Expected ]');
@@ -1161,6 +1173,7 @@ export class Parser {
       case TokenType.INPUT:
       // Contextual keywords that can be used as variable names
       case TokenType.BY:
+      case TokenType.METHOD:
         this.advance();
         return { kind: 'IdentifierExpression', name: cur.value, loc: cur.loc } as IdentifierExpression;
 

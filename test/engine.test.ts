@@ -902,6 +902,62 @@ plot(close, "close")`,
     }
   });
 
+  it('runs a tuple declaration after a switch expression', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Switch tuple")
+x = switch
+    close > open => 1
+    => 2
+[prevHigh, prevLow] = request.security(syminfo.tickerid, "D", [high[1], low[1]])
+plot(x)`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.some((value) => Number.isFinite(value))).toBe(true);
+  });
+
+  it('supports Library method syntax and JavaScript-reserved names', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Method syntax", overlay=true)
+method = 1
+new = 2
+l = line.new(bar_index, low, bar_index, high)
+l.set_xy1(bar_index - 1, low)
+l.set_xy2(bar_index + 1, high)
+arr = array.from(1, 2, 3)
+idx = arr.binary_search_rightmost(2)
+plot(new + method + idx + line.get_y1(l))`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    expect(result.drawings.lines).toHaveLength(10);
+    expect(result.plots[0]!.values.some((value) => Number.isFinite(value))).toBe(true);
+  });
+
+  it('interpolates color.from_gradient and exposes ta.tsi', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Gradient")
+barcolor(color.from_gradient(close, 90, 110, color.black, color.white))
+plotshape(close > open ? 1 : na, "Mark", color=color(na))
+plot(ta.tsi(close, 3, 10), "TSI")`,
+      bars: bars(60),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+    expect(result.barColors.length).toBeGreaterThan(0);
+    expect(result.barColors[0]!.color).toMatch(/^#[0-9A-F]{8}$/);
+    const tsi = result.plots.find((plot) => plot.title === 'TSI')!;
+    expect(tsi.values.some((value) => Number.isFinite(value))).toBe(true);
+    expect(tsi.values.filter((value) => Number.isFinite(value)).every((value) => value >= -100 && value <= 100)).toBe(true);
+  });
+
   it('returns per-bar plotcandle colors', () => {
     const result = runPineScript({
       source: `//@version=6
