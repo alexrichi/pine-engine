@@ -1,3 +1,5 @@
+import { numeric } from '../types/series';
+
 function pointXY(point: unknown): { x: number; y: number } | null {
   if (Array.isArray(point) && point.length >= 2) {
     const x = Number(point[0]);
@@ -55,10 +57,10 @@ export function createLineModule() {
   ): LineObject => {
     const line: LineObject = {
       id: nextId++,
-      x1,
-      y1,
-      x2,
-      y2,
+      x1: numeric(x1),
+      y1: numeric(y1),
+      x2: numeric(x2),
+      y2: numeric(y2),
       xloc: opts?.xloc ?? 'bar_index',
       extend: opts?.extend ?? 'none',
       color: opts?.color ?? '#2962FF',
@@ -93,34 +95,34 @@ export function createLineModule() {
 
     set_x1(line: LineObject, val: number): void {
       if (!line || typeof line !== 'object') return;
-      line.x1 = val;
+      line.x1 = numeric(val);
     },
 
     set_y1(line: LineObject, val: number): void {
       if (!line || typeof line !== 'object') return;
-      line.y1 = val;
+      line.y1 = numeric(val);
     },
 
     set_x2(line: LineObject, val: number): void {
       if (!line || typeof line !== 'object') return;
-      line.x2 = val;
+      line.x2 = numeric(val);
     },
 
     set_y2(line: LineObject, val: number): void {
       if (!line || typeof line !== 'object') return;
-      line.y2 = val;
+      line.y2 = numeric(val);
     },
 
     set_xy1(line: LineObject, x: number, y: number): void {
       if (!line || typeof line !== 'object') return;
-      line.x1 = x;
-      line.y1 = y;
+      line.x1 = numeric(x);
+      line.y1 = numeric(y);
     },
 
     set_xy2(line: LineObject, x: number, y: number): void {
       if (!line || typeof line !== 'object') return;
-      line.x2 = x;
-      line.y2 = y;
+      line.x2 = numeric(x);
+      line.y2 = numeric(y);
     },
 
     set_first_point(line: LineObject, point: unknown): void {
@@ -159,7 +161,7 @@ export function createLineModule() {
 
     set_width(line: LineObject, val: number): void {
       if (!line || typeof line !== 'object') return;
-      line.width = val;
+      line.width = numeric(val);
     },
 
     get_x1(line: LineObject): number {

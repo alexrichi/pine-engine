@@ -54,3 +54,13 @@ export class Series<T> {
     return String(this.get(0));
   }
 }
+
+/** Unwrap a Series to its value on the current bar before storing it. */
+export function scalarValue<T>(value: T): T {
+  return value instanceof Series ? (value.get(0) as unknown as T) : value;
+}
+
+/** Numeric form of a Pine argument; Series resolve to the current bar. */
+export function numeric(value: unknown): number {
+  return Number(scalarValue(value));
+}

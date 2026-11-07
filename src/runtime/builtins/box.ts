@@ -1,3 +1,5 @@
+import { numeric } from '../types/series';
+
 export interface BoxObject {
   id: number;
   left: number;
@@ -73,10 +75,10 @@ export function createBoxModule() {
   ): BoxObject => {
     const box: BoxObject = {
       id: nextId++,
-      left,
-      top,
-      right,
-      bottom,
+      left: numeric(left),
+      top: numeric(top),
+      right: numeric(right),
+      bottom: numeric(bottom),
       xloc: opts?.xloc ?? 'bar_index',
       extend: opts?.extend ?? 'none',
       bgcolor: opts?.bgcolor ?? '#2962FF33',
@@ -120,33 +122,34 @@ export function createBoxModule() {
 
     set_left(box: BoxObject, val: number): void {
       if (!box || typeof box !== 'object') return;
-      box.left = val;
+      box.left = numeric(val);
     },
 
     set_top(box: BoxObject, val: number): void {
       if (!box || typeof box !== 'object') return;
-      box.top = val;
+      box.top = numeric(val);
     },
 
     set_right(box: BoxObject, val: number): void {
       if (!box || typeof box !== 'object') return;
-      box.right = val;
+      box.right = numeric(val);
     },
 
     set_bottom(box: BoxObject, val: number): void {
       if (!box || typeof box !== 'object') return;
-      box.bottom = val;
+      box.bottom = numeric(val);
     },
 
     set_lefttop(box: BoxObject, left: number, top: number): void {
       if (!box || typeof box !== 'object') return;
-      box.left = left;
-      box.top = top;
+      box.left = numeric(left);
+      box.top = numeric(top);
     },
 
     set_rightbottom(box: BoxObject, right: number, bottom: number): void {
-      box.right = right;
-      box.bottom = bottom;
+      if (!box || typeof box !== 'object') return;
+      box.right = numeric(right);
+      box.bottom = numeric(bottom);
     },
 
     set_top_left_point(box: BoxObject, point: unknown): void {

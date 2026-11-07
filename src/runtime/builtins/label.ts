@@ -1,3 +1,5 @@
+import { numeric } from '../types/series';
+
 export interface LabelObject {
   id: number;
   x: number;
@@ -63,8 +65,8 @@ export function createLabelModule() {
   ): LabelObject => {
     const label: LabelObject = {
       id: nextId++,
-      x,
-      y,
+      x: numeric(x),
+      y: numeric(y),
       text,
       xloc: opts?.xloc ?? 'bar_index',
       yloc: opts?.yloc ?? 'price',
@@ -103,16 +105,19 @@ export function createLabelModule() {
     },
 
     set_x(label: LabelObject, val: number): void {
-      label.x = val;
+      if (!label || typeof label !== 'object') return;
+      label.x = numeric(val);
     },
 
     set_y(label: LabelObject, val: number): void {
-      label.y = val;
+      if (!label || typeof label !== 'object') return;
+      label.y = numeric(val);
     },
 
     set_xy(label: LabelObject, x: number, y: number): void {
-      label.x = x;
-      label.y = y;
+      if (!label || typeof label !== 'object') return;
+      label.x = numeric(x);
+      label.y = numeric(y);
     },
 
     set_point(label: LabelObject, point: unknown): void {

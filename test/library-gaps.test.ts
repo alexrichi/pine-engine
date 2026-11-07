@@ -116,6 +116,27 @@ plot(vals.get(0), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
   });
 
+  it('stores numeric drawing coordinates from builtin series', () => {
+    const result = run(`//@version=6
+indicator("draw series", overlay = true)
+var line ln = line.new(na, na, na, na, xloc = xloc.bar_time)
+ln.set_xy1(time, high)
+ln.set_xy2(time + 3600000, low)
+var box bx = box.new(na, na, na, na, xloc = xloc.bar_time)
+bx.set_lefttop(time, high)
+bx.set_rightbottom(time + 3600000, low)
+var label lb = label.new(na, na, xloc = xloc.bar_time)
+lb.set_xy(time, close)
+`);
+    expect(result.ok).toBe(true);
+    const bar = bars.at(-1)!;
+    expect(result.drawings.lines[0]!.y1).toBe(bar.high);
+    expect(result.drawings.lines[0]!.y2).toBe(bar.low);
+    expect(result.drawings.boxes[0]!.top).toBe(bar.high);
+    expect(result.drawings.boxes[0]!.bottom).toBe(bar.low);
+    expect(result.drawings.labels[0]!.y).toBe(bar.close);
+  });
+
   it('keeps transparency in color input defaults', () => {
     const compiled = compilePine({
       source: `//@version=6
