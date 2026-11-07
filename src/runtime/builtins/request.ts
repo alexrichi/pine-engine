@@ -442,10 +442,13 @@ export function createRequestModule(
     const requested = canonicalTimeframe(timeframe || currentTimeframe);
     const empty = () => (tuple ? (expression as unknown[]).map(() => NA) : NA);
 
-    // A probe runs the whole script on HTF bars; only the target call site and
-    // timeframe capture, everything else is na to avoid nested probes.
+    // A probe runs the whole script on HTF bars; only the target call site
+    // captures, everything else is na to avoid nested probes. The timeframe
+    // argument can recompute differently inside the probe (a script deriving
+    // it from `timeframe.in_seconds()`, for example), so the call site alone
+    // identifies the target; the probe bars already are its timeframe.
     if (securityProbe?.active) {
-      if (siteId === securityProbe.site && requested === canonicalTimeframe(securityProbe.timeframe)) {
+      if (siteId === securityProbe.site) {
         securityProbe.capture(getCurrentBarIndex(), expression);
         return expression;
       }
