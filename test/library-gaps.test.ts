@@ -116,6 +116,25 @@ plot(vals.get(0), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
   });
 
+  it('snapshots builtin series into UDT constructor args and fields', () => {
+    const result = run(`//@version=6
+indicator("udt snapshot")
+type Level
+    float value = na
+    int stamp = na
+var Level level = Level.new(value = high, stamp = time)
+if bar_index == 0
+    level.value := high
+    level.stamp := time
+plot(level.value, "value")
+plot(level.stamp, "stamp")
+`);
+    expect(result.ok).toBe(true);
+    // A stored Series would keep reading the current bar; Pine snapshots it.
+    expect(result.plots[0]!.values).toEqual(Array(8).fill(101));
+    expect(result.plots[1]!.values).toEqual(Array(8).fill(bars[0]!.time));
+  });
+
   it('returns the value of a trailing assignment and keeps parameters over globals', () => {
     const result = run(`//@version=6
 indicator("tail")

@@ -420,7 +420,7 @@ describe('Assignment operators', () => {
   it('generates := as = for plain variables', () => {
     const src = `//@version=6\nindicator("Test")\nx = 5\nx := 10\n`;
     const code = compileOk(src);
-    expect(code).toContain('x = 10');
+    expect(code).toContain('x = __rt.scalar(10)');
   });
 
   it('generates += operator for var state', () => {

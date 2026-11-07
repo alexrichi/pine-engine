@@ -136,7 +136,7 @@ type MyType
 o = MyType.new(price=100.0)
 `;
     const code = compileOk(src);
-    expect(code).toContain('MyType.new({price: 100');
+    expect(code).toContain('MyType.new({price: __rt.scalar(100');
   });
 });
 
@@ -251,7 +251,7 @@ b = Box.new()
 b.x := 10.0
 `;
     const code = compileOk(src);
-    expect(code).toContain('b.x = 10');
+    expect(code).toContain('b.x = __rt.scalar(10)');
   });
 });
 
@@ -273,7 +273,7 @@ plot(b.hl2())
     const code = compileOk(src);
     expect(code).toContain('function __udt_Bar(fields)');
     expect(code).toContain('Bar.prototype.hl2 = function()');
-    expect(code).toContain('Bar.new({h: __rt.high');
+    expect(code).toContain('Bar.new({h: __rt.scalar(__rt.high');
     expect(code).toContain('__rt.udtCall(b, "hl2", [])');
     expect(code).toContain('__rt.plot(');
   });
@@ -293,7 +293,7 @@ i = Inner.new(v=2.0)
     expect(code).toContain('function __udt_Inner(fields)');
     expect(code).toContain('function __udt_Outer(fields)');
     expect(code).toContain('__udt_Outer.new({})');
-    expect(code).toContain('__udt_Inner.new({v: 2');
+    expect(code).toContain('__udt_Inner.new({v: __rt.scalar(2');
   });
 
   it('Candle UDT with range and isGreen methods', () => {

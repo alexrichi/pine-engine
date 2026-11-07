@@ -927,10 +927,10 @@ private fnParams = new Set<string>();
       const arg = call.args[i];
       const key = arg.name ?? fieldNames[i];
       if (key !== undefined) {
-        parts.push(`${key}: ${this.genExpr(arg.value)}`);
+        parts.push(`${key}: __rt.scalar(${this.genExpr(arg.value)})`);
       } else {
         // Positional arg without field name mapping — emit as positional-ish
-        parts.push(this.genExpr(arg.value));
+        parts.push(`__rt.scalar(${this.genExpr(arg.value)})`);
       }
     }
 
@@ -978,7 +978,7 @@ private fnParams = new Set<string>();
       if (declares) {
         out.push(this.indent() + `var ${lhsStr} = __rt.scalar(${rhs});`);
       } else if (op === ':=') {
-        out.push(this.indent() + `${lhsStr} = ${rhs};`);
+        out.push(this.indent() + `${lhsStr} = __rt.scalar(${rhs});`);
       } else {
         out.push(this.indent() + `${lhsStr} ${op} ${rhs};`);
       }
