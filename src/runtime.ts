@@ -85,7 +85,9 @@ function inputValue(value: unknown, type: string): number | boolean | string {
 function inputOf(input: InputDef): PineInput {
   return {
     id: input.id,
-    name: input.title || input.id,
+    // Keep an explicit blank title blank: it is Pine's "no label" idiom and the
+    // settings dialog understands it. An omitted title already defaults to the id.
+    name: input.title,
     type: input.type,
     defval: inputValue(input.defaultValue, input.type),
     ...(input.options ? { options: input.options } : {}),

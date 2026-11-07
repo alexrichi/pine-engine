@@ -1907,6 +1907,7 @@ private fnParams = new Set<string>();
     // Extract input metadata and return __rt.getInput(id)
     let id = `input_${this.metadata.inputs.length}`;
     let title = id;
+    let explicitId: string | undefined;
     let defaultValue: unknown = undefined;
     let type = 'float';
     let defaultSource = 'close';
@@ -1938,10 +1939,18 @@ private fnParams = new Set<string>();
         if (arg.value.kind === 'IdentifierExpression') defaultSource = (arg.value as IdentifierExpression).name;
       } else if (arg.name === 'title' || (arg.name === null && index === 1)) {
         const v = this.getLiteralValue(arg.value);
-        if (typeof v === 'string') { title = v; id = v; }
+        // A blank title is Pine's "no label" idiom for an inline companion; the
+        // input still needs a unique key, but the dialog must not print it.
+        if (typeof v === 'string') {
+          title = v;
+          if (explicitId === undefined) id = v || id;
+        }
       } else if (arg.name === 'id') {
         const v = this.getLiteralValue(arg.value);
-        if (typeof v === 'string') id = v;
+        if (typeof v === 'string') {
+          id = v;
+          explicitId = v;
+        }
       } else if (arg.name === 'options' && arg.value.kind === 'ArrayLiteralExpression') {
         const values = (arg.value as ArrayLiteralExpression).elements
           .map((element) => this.getLiteralValue(element))

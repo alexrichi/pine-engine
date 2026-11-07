@@ -44,6 +44,28 @@ plot(pick(2), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(1);
   });
 
+  it('keeps blank and duplicate input titles out of the settings keys', () => {
+    const compiled = compilePine({
+      source: `//@version=6
+indicator("titles")
+a = input.bool(true, "Text")
+b = input.color(color.red, "")
+c = input.string("x", "Text")
+d = input.bool(true)
+e = input.int(5, "Named", id = "explicit")
+plot(a ? 1 : 0, "a")
+`,
+    });
+    expect(compiled.ok).toBe(true);
+    const inputs = compiled.meta.inputs;
+    expect(inputs.map((input) => input.name)).toEqual(['Text', '', 'Text', 'input_3', 'Named']);
+    expect(inputs[0]!.id).toBe('Text');
+    expect(inputs[1]!.id).not.toBe('');
+    expect(inputs[2]!.id).toBe('Text_1');
+    expect(inputs[1]!.id).not.toBe(inputs[2]!.id);
+    expect(inputs[4]!.id).toBe('explicit');
+  });
+
   it('resolves input defaults from string constants and keeps options', () => {
     const compiled = compilePine({
       source: `//@version=6
