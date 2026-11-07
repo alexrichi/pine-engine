@@ -281,6 +281,37 @@ export function createTaModule(
     return entry.series;
   }
 
+  function pivotAt(source: Series<number>, leftBars: number, rightBars: number, high: boolean): number {
+    const bars = source.length;
+    const current = bars - 1;
+    if (leftBars < 0 || rightBars < 0 || current < leftBars + rightBars) {
+      return NA as unknown as number;
+    }
+    const candidate = source.get(rightBars);
+    if (isNa(candidate)) return NA as unknown as number;
+
+    // The window holds `leftBars + rightBars + 1` non-na values; na bars are skipped.
+    const windowSize = leftBars + rightBars + 1;
+    let seen = 0;
+    for (let back = 0; back < bars && seen < windowSize; back++) {
+      const value = source.get(back);
+      if (isNa(value)) continue;
+      seen++;
+      if (back === rightBars) continue;
+      const number = value as number;
+      if (high) {
+        if (number > (candidate as number)) return NA as unknown as number;
+      } else if (number < (candidate as number)) {
+        return NA as unknown as number;
+      }
+      // A newer equal takes the pivot; an older equal does not.
+      if (back < rightBars && number === (candidate as number)) {
+        return NA as unknown as number;
+      }
+    }
+    return candidate as number;
+  }
+
   type CumulativeName = 'obv' | 'accdist' | 'nvi' | 'pvi' | 'pvt' | 'wad' | 'wvad';
   function cumulativeValue(name: CumulativeName): number {
     const close = getClose?.();
@@ -1128,62 +1159,20 @@ export function createTaModule(
 
     /**
      * ta.pivothigh(source, leftBars, rightBars)
-     * Detects pivot highs. Returns the pivot value if source[rightBars] is higher than
-     * all bars within leftBars before it and rightBars after it.
-     * Returns NA if no pivot detected at the rightBars lookback point.
+     * TradingView semantics: the candidate `rightBars` bars back is the pivot when
+     * it is the highest of the last `leftBars + rightBars + 1` non-na values.
+     * A newer equal value disqualifies it; an older equal does not.
      */
     pivothigh(source: Series<number>, leftBars: number, rightBars: number): number {
-      const totalBars = leftBars + rightBars + 1;
-      if (source.length < totalBars) return NA as unknown as number;
-
-      // The pivot candidate is at source[rightBars] (rightBars bars ago)
-      const pivotVal = source.get(rightBars);
-      if (isNa(pivotVal)) return NA as unknown as number;
-
-      // Check right side: bars 0 to rightBars-1 must be < pivotVal
-      for (let i = 0; i < rightBars; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        if ((v as number) >= (pivotVal as number)) return NA as unknown as number;
-      }
-
-      // Check left side: bars rightBars+1 to rightBars+leftBars must be < pivotVal
-      for (let i = rightBars + 1; i <= rightBars + leftBars; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        if ((v as number) >= (pivotVal as number)) return NA as unknown as number;
-      }
-
-      return pivotVal as number;
+      return pivotAt(source, leftBars, rightBars, true);
     },
 
     /**
      * ta.pivotlow(source, leftBars, rightBars)
-     * Detects pivot lows. Returns the pivot value if source[rightBars] is lower than
-     * all bars within leftBars before it and rightBars after it.
+     * Same window and tie rules as pivothigh, lowest value wins.
      */
     pivotlow(source: Series<number>, leftBars: number, rightBars: number): number {
-      const totalBars = leftBars + rightBars + 1;
-      if (source.length < totalBars) return NA as unknown as number;
-
-      const pivotVal = source.get(rightBars);
-      if (isNa(pivotVal)) return NA as unknown as number;
-
-      // Check right side: bars 0 to rightBars-1 must be > pivotVal
-      for (let i = 0; i < rightBars; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        if ((v as number) <= (pivotVal as number)) return NA as unknown as number;
-      }
-
-      // Check left side: bars rightBars+1 to rightBars+leftBars must be > pivotVal
-      for (let i = rightBars + 1; i <= rightBars + leftBars; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        if ((v as number) <= (pivotVal as number)) return NA as unknown as number;
-      }
-
-      return pivotVal as number;
+      return pivotAt(source, leftBars, rightBars, false);
     },
 
     /**

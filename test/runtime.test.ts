@@ -274,6 +274,40 @@ describe('TA: EMA', () => {
   });
 });
 
+// ---- Pivot high / low ----
+describe('TA: pivothigh / pivotlow', () => {
+  function make(values: number[]) {
+    let barIdx = 0;
+    const ta = createTaModule(() => barIdx);
+    const series = new Series<number>(values.length + 10);
+    for (const value of values) {
+      series.push(value);
+      barIdx++;
+    }
+    return { ta, series };
+  }
+
+  it('finds a plain pivot high and low', () => {
+    const high = make([1, 3, 1]);
+    expect(high.ta.pivothigh(high.series, 1, 1)).toBe(3);
+    const low = make([1, 0.5, 1]);
+    expect(low.ta.pivotlow(low.series, 1, 1)).toBe(0.5);
+  });
+
+  it('accepts an older equal value and rejects a newer one', () => {
+    const older = make([3, 2, 3, 1]);
+    expect(older.ta.pivothigh(older.series, 2, 1)).toBe(3);
+    const newer = make([3, 2, 3, 3]);
+    expect(newer.ta.pivothigh(newer.series, 2, 1)).toBeNaN();
+  });
+
+  it('skips na values when building the window', () => {
+    const { ta, series } = make([2, Number.NaN, 3, 2, 1]);
+    // candidate = bar 3 (2), window skips the na and sees 3, which is higher.
+    expect(ta.pivothigh(series, 2, 1)).toBeNaN();
+  });
+});
+
 // ---- Crossover / Crossunder ----
 describe('TA: crossover / crossunder', () => {
   it('crossover detects when a crosses above b', () => {
