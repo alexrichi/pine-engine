@@ -206,16 +206,22 @@ describe('str.tostring format specifiers', () => {
   });
 
   describe('format.volume', () => {
-    it('formats billions with B suffix', () => {
-      expect(str.tostring(1500000000, 'format.volume')).toBe('1.50B');
+    it('formats billions with B suffix and drops trailing zeros', () => {
+      expect(str.tostring(1500000000, 'format.volume')).toBe('1.5B');
     });
 
     it('formats millions with M suffix', () => {
-      expect(str.tostring(2500000, 'format.volume')).toBe('2.50M');
+      expect(str.tostring(2500000, 'format.volume')).toBe('2.5M');
     });
 
     it('formats thousands with K suffix', () => {
-      expect(str.tostring(5500, 'format.volume')).toBe('5.50K');
+      expect(str.tostring(5500, 'format.volume')).toBe('5.5K');
+    });
+
+    it('keeps three fractional digits when needed', () => {
+      expect(str.tostring(462546.752, 'format.volume')).toBe('462.547K');
+      expect(str.tostring(523021.273, 'format.volume')).toBe('523.021K');
+      expect(str.tostring(562259.701, 'format.volume')).toBe('562.26K');
     });
 
     it('formats small numbers as rounded integer', () => {
@@ -223,7 +229,7 @@ describe('str.tostring format specifiers', () => {
     });
 
     it('formats negative millions', () => {
-      expect(str.tostring(-3000000, 'format.volume')).toBe('-3.00M');
+      expect(str.tostring(-3000000, 'format.volume')).toBe('-3M');
     });
   });
 
@@ -248,6 +254,22 @@ describe('str.tostring format specifiers', () => {
   describe('existing #.## format strings still work', () => {
     it('formats with #.## pattern', () => {
       expect(str.tostring(3.14159, '#.##')).toBe('3.14');
+    });
+
+    it('drops optional trailing zeros and keeps required ones', () => {
+      expect(str.tostring(232.5045, '#.##')).toBe('232.5');
+      expect(str.tostring(43.2, '#.##')).toBe('43.2');
+      expect(str.tostring(20, '#.##')).toBe('20');
+      expect(str.tostring(3, '0.00')).toBe('3.00');
+    });
+
+    it('scales a trailing percent token', () => {
+      expect(str.tostring(0.432, '#.##%')).toBe('43.2%');
+    });
+
+    it('uses the default #.######## pattern without trailing zeros', () => {
+      expect(str.tostring(468572.56399999995)).toBe('468572.564');
+      expect(str.tostring(32)).toBe('32');
     });
 
     it('formats with 0.00 pattern', () => {

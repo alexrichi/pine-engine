@@ -7,38 +7,78 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+const VOLUME_UNITS: Array<[number, string]> = [
+  [1e12, 'T'],
+  [1e9, 'B'],
+  [1e6, 'M'],
+  [1e3, 'K'],
+];
+
+/**
+ * Pine pattern digits: `#` prints an optional digit, `0` a required one, `,`
+ * groups whole digits, and a trailing `%` scales the value by 100. Optional
+ * fractional zeros drop, required ones stay, so `#.##` prints `2.5` and `0.00`
+ * prints `2.50`.
+ */
+function formatPattern(value: number, pattern: string): string {
+  let scaled = value;
+  let suffix = '';
+  if (pattern.endsWith('%')) {
+    scaled *= 100;
+    suffix = '%';
+    pattern = pattern.slice(0, -1);
+  }
+  const dot = pattern.indexOf('.');
+  const wholePattern = dot >= 0 ? pattern.slice(0, dot) : pattern;
+  const fractionPattern = dot >= 0 ? pattern.slice(dot + 1) : '';
+  const required = (fractionPattern.match(/0/g) ?? []).length;
+
+  const [rawWhole = '0', rawFraction = ''] = Math.abs(scaled).toFixed(fractionPattern.length).split('.');
+  const fraction = rawFraction.replace(/0+$/, '').padEnd(required, '0');
+  let whole = rawWhole.padStart((wholePattern.match(/0/g) ?? []).length, '0');
+  if (wholePattern.includes(',')) {
+    whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  const sign = scaled < 0 && Number(`${rawWhole}.${rawFraction}`) !== 0 ? '-' : '';
+  return sign + whole + (fraction ? '.' + fraction : '') + suffix;
+}
+
+/** `format.volume`: 3 fractional digits with K/M/B/T units, trailing zeros dropped. */
+function formatVolume(value: number): string {
+  const abs = Math.abs(value);
+  const unit = VOLUME_UNITS.find(([size]) => abs >= size);
+  return formatPattern(unit ? value / unit[0] : value, unit ? '#.###' : '#') + (unit ? unit[1] : '');
+}
+
 export const str = {
   /**
    * Convert any value to its string representation.
-   * Optionally accepts a format string (e.g. "#.##" for number formatting)
-   * or a named format specifier ("format.mintick", "format.volume", "format.percent").
+   * Optionally accepts a Pine pattern (e.g. "#.##") or a named format specifier
+   * ("format.mintick", "format.volume", "format.percent"). The compiler emits
+   * the bare enum member (`"volume"`), so both spellings are accepted.
    */
   tostring(value: any, format?: string): string {
     if (value === null || value === undefined || (typeof value === 'number' && isNaN(value))) {
       return 'NaN';
     }
-    if (format !== undefined && typeof value === 'number') {
-      // Named format specifiers
-      if (format === 'format.mintick') {
+    if (typeof value === 'number') {
+      if (format === undefined || format === '') {
+        return formatPattern(value, '#.########');
+      }
+      const spec = format.startsWith('format.') ? format.slice('format.'.length) : format;
+      if (spec === 'mintick') {
         return value.toFixed(2);
       }
-      if (format === 'format.volume') {
-        const abs = Math.abs(value);
-        if (abs >= 1e9) return (value / 1e9).toFixed(2) + 'B';
-        if (abs >= 1e6) return (value / 1e6).toFixed(2) + 'M';
-        if (abs >= 1e3) return (value / 1e3).toFixed(2) + 'K';
-        return String(Math.round(value));
+      if (spec === 'volume') {
+        return formatVolume(value);
       }
-      if (format === 'format.percent') {
-        return value.toFixed(2) + '%';
+      if (spec === 'percent') {
+        return formatPattern(value, '0.00') + '%';
       }
-      // Handle Pine-style format strings like "#.##", "0.00", etc.
-      const m = format.match(/[#0]*\.([#0]+)/);
-      if (m) {
-        const decimals = m[1].length;
-        return value.toFixed(decimals);
+      if (!/[#0]/.test(spec)) {
+        return String(value);
       }
-      return String(value);
+      return formatPattern(value, spec);
     }
     return String(value);
   },

@@ -210,6 +210,18 @@ plot(hits, "hits")
     expect(result.plots[0]!.values[0]).toBe(4);
   });
 
+  it('formats a compiled format.volume argument like TradingView', () => {
+    const result = run(`//@version=6
+indicator("format volume")
+string text = str.tostring(462546.752, format.volume)
+plot(str.contains(text, "462.547K") ? 1 : 0, "ok")
+plot(str.length(text), "len")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(1);
+    expect(result.plots[1]!.values.at(-1)).toBe(8);
+  });
+
   it('returns na from a drawing getter on a missing drawing', () => {
     const result = run(`//@version=6
 indicator("na drawing")
