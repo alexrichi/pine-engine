@@ -1495,7 +1495,7 @@ private fnParams = new Set<string>();
     // HTF probe that captures the expression per HTF bar.
     if (calleeName === 'request.security') {
       const specs = this.securitySpecs(this.securityArg(call, 'expression', 2)?.value);
-      if (specs) {
+      if (specs && specs.items.every((item) => item !== null)) {
         const symbol = this.securityExprArg(call, 'symbol', 0);
         const timeframe = this.securityExprArg(call, 'timeframe', 1);
         const gaps = this.securityExprArg(call, 'gaps', 3);

@@ -61,6 +61,36 @@ plot(flag ? mult : 0, "value")
     expect(result.plots[0]!.values.at(-1)).toBe(3.5);
   });
 
+  it('probes a mixed security tuple with a TA expression', () => {
+    const bars: PineBar[] = Array.from({ length: 8 }, (_, index) => {
+      const open = 10 + index;
+      return {
+        time: 1_700_000_000_000 + index * 15 * 60_000,
+        open,
+        high: open + 2,
+        low: open - 1,
+        close: open + 0.5,
+        volume: 1,
+      };
+    });
+    const result = runPineScript({
+      source: `//@version=6
+indicator("security mixed tuple")
+[c, h] = request.security(syminfo.tickerid, "60", [close, ta.highest(close, 1)])
+plot(c, "c")
+plot(h, "h")
+`,
+      bars,
+      timeframe: '15',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+    // The last 15m bar reads the first closed 60m bar: close and highest(1).
+    expect(result.plots[0]!.values.at(-1)).toBe(13.5);
+    expect(result.plots[1]!.values.at(-1)).toBe(13.5);
+  });
+
   it('returns the requested timeframe bar start from time and time_close', () => {
     const start = Date.UTC(2024, 0, 1);
     const bars: PineBar[] = Array.from({ length: 8 }, (_, index) => ({

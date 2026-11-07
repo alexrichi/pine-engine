@@ -457,7 +457,7 @@ plot(y, "y")`,
     expect(result.plots[1]!.values.some(Number.isFinite)).toBe(true);
     expect(result.warnings).toEqual([]);
 
-    const unsupported = runPineScript({
+    const mixed = runPineScript({
       source: `//@version=6
 indicator("Security tuple")
 [x, y] = request.security(syminfo.tickerid, "D", [close + 1, open])
@@ -467,8 +467,10 @@ plot(y, "y")`,
       timeframe: '60',
       symbol: 'BINANCE:BTCUSDT',
     });
-    expect(unsupported.plots[0]!.values.every(Number.isNaN)).toBe(true);
-    expect(unsupported.warnings.length).toBeGreaterThan(0);
+    expect(mixed.ok).toBe(true);
+    expect(mixed.plots[0]!.values.some(Number.isFinite)).toBe(true);
+    expect(mixed.plots[1]!.values.some(Number.isFinite)).toBe(true);
+    expect(mixed.warnings).toEqual([]);
   });
 
   it('ignores drawing deletes on na', () => {
