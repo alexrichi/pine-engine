@@ -181,6 +181,26 @@ plot(b, "b")
     expect(result.plots[1]!.values.slice(1)).toEqual([100, 101, 102, 103, 104, 105, 106]);
   });
 
+  it('keeps a tuple local distinct from a same-named var in another function', () => {
+    const result = run(`//@version=6
+indicator("tuple shadow")
+type P
+    float y = na
+mk(v) =>
+    var P top = P.new(na)
+    top := P.new(v)
+    top
+read() =>
+    [top, other] = [mk(close), 0]
+    top.y
+plot(read(), "tuple")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.map((v) => Math.round(v * 100) / 100)).toEqual(
+      [100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5],
+    );
+  });
+
   it('applies user function parameter defaults when the argument is omitted', () => {
     const result = run(`//@version=6
 indicator("param defaults")

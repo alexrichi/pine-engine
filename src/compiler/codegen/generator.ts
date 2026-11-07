@@ -200,6 +200,8 @@ private thisAlias: string | null = null;
 private fnSiteParam: string | null = null;
 /** `var` names declared inside the function currently being generated. */
 private fnLocalVars = new Set<string>();
+/** Plain `x = ...` / tuple locals inside a function: JS bindings, not state slots. */
+private fnPlainLocals = new Set<string>();
 /** Parameter names of the function currently being generated. */
 private fnParams = new Set<string>();
 
@@ -592,7 +594,7 @@ private fnParams = new Set<string>();
    * a local `var` and a parameter keep separate history for every caller.
    */
   private userSeriesKey(name: string): string {
-    if (this.fnSiteParam && (this.fnLocalVars.has(name) || this.fnParams.has(name))) {
+    if (this.fnSiteParam && (this.fnLocalVars.has(name) || this.fnPlainLocals.has(name) || this.fnParams.has(name))) {
       return `${JSON.stringify(name + ':')} + ${this.fnSiteParam}`;
     }
     return JSON.stringify(name);
@@ -617,7 +619,7 @@ private fnParams = new Set<string>();
       );
       // Track history and types for each tuple name
       if (this.fnSiteParam) {
-        for (const tname of decl.tupleNames) this.fnLocalVars.add(tname);
+        for (const tname of decl.tupleNames) this.fnPlainLocals.add(tname);
       }
       for (let index = 0; index < decl.tupleNames.length; index += 1) {
         const tname = decl.tupleNames[index]!;
@@ -676,7 +678,7 @@ private fnParams = new Set<string>();
     } else {
       // Plain declaration. Pine variables hold the current bar's value, not the
       // Series object, so unwrap before storing.
-      if (this.fnSiteParam) this.fnLocalVars.add(name);
+      if (this.fnSiteParam) this.fnPlainLocals.add(name);
       const valStr = this.genExpr(decl.value);
       out.push(this.indent() + `var ${safeIdent(name)} = __rt.scalar(${valStr});`);
       // Emit userSeriesSet for history-tracked variables
@@ -695,9 +697,11 @@ private fnParams = new Set<string>();
     const savedTypes = this.pushParamTypes(decl.params);
     const savedSite = this.fnSiteParam;
     const savedLocals = this.fnLocalVars;
+    const savedPlain = this.fnPlainLocals;
     const savedParams = this.fnParams;
     this.fnSiteParam = '__site';
     this.fnLocalVars = new Set(savedLocals);
+    this.fnPlainLocals = new Set(savedPlain);
     this.fnParams = new Set(savedParams);
     for (const param of decl.params) this.fnParams.add(param.name);
     // Pine applies a parameter's default when the caller omits the argument.
@@ -716,6 +720,7 @@ private fnParams = new Set<string>();
     }
     this.fnSiteParam = savedSite;
     this.fnLocalVars = savedLocals;
+    this.fnPlainLocals = savedPlain;
     this.fnParams = savedParams;
     this.restoreParamTypes(savedTypes);
     this.indentLevel--;
@@ -898,9 +903,11 @@ private fnParams = new Set<string>();
       this.thisAlias = selfName;
       const savedSite = this.fnSiteParam;
       const savedLocals = this.fnLocalVars;
+      const savedPlain = this.fnPlainLocals;
       const savedParams = this.fnParams;
       this.fnSiteParam = '__site';
       this.fnLocalVars = new Set(savedLocals);
+      this.fnPlainLocals = new Set(savedPlain);
       this.fnParams = new Set(savedParams);
       this.fnParams.add(selfName);
       for (const param of decl.params) this.fnParams.add(param.name);
@@ -917,6 +924,7 @@ private fnParams = new Set<string>();
       }
       this.fnSiteParam = savedSite;
       this.fnLocalVars = savedLocals;
+      this.fnPlainLocals = savedPlain;
       this.fnParams = savedParams;
       this.thisAlias = null;
       this.indentLevel--;
@@ -1012,7 +1020,7 @@ private fnParams = new Set<string>();
       if (declares) {
         // Function-local declarations need the call-site history key even when
         // Pine writes the declaration as `x = ...` (an assignment statement).
-        if (this.fnSiteParam && targetName) this.fnLocalVars.add(targetName);
+        if (this.fnSiteParam && targetName) this.fnPlainLocals.add(targetName);
         out.push(this.indent() + `var ${lhsStr} = __rt.scalar(${rhs});`);
       } else if (op === ':=') {
         out.push(this.indent() + `${lhsStr} = __rt.scalar(${rhs});`);
@@ -1213,6 +1221,9 @@ private fnParams = new Set<string>();
     // Check color constant (e.g. bare "color" identifier - unlikely but handle)
     const colorHex = COLOR_CONSTANTS[name];
     if (colorHex) return JSON.stringify(colorHex);
+
+    // A plain local shadows a same-named `var`/`varip` declared elsewhere.
+    if (!this.fnParams.has(name) && this.fnPlainLocals.has(name)) return safeIdent(name);
 
     // var/varip references
     if (this.varDecls.has(name)) {
