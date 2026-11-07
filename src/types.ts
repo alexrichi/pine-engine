@@ -302,6 +302,8 @@ export interface PineRunResult {
   fills: PineFill[];
   barColors: PineBarColor[];
   inputs: PineInput[];
+  /** Alerts raised on the last (current) bar by `alert()` / `alertcondition()`. */
+  alerts: PineAlert[];
   /** Source-level limitations found at compile time plus runtime warnings. */
   warnings: string[];
   /**
@@ -309,6 +311,18 @@ export interface PineRunResult {
    * An empty list means the script ran with full coverage.
    */
   missingStd: string[];
+}
+
+/** One alert raised by a script on its current bar. */
+export interface PineAlert {
+  message: string;
+  title?: string;
+  /** Bar open time in epoch ms. */
+  time: number;
+  barIndex: number;
+  freq?: string;
+  /** Generated call-site id; absent for alerts without one. */
+  site?: string;
 }
 
 export interface PineProgram {

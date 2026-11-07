@@ -166,6 +166,7 @@ function emptyRun(
     fills: [],
     barColors: [],
     inputs,
+    alerts: [],
     warnings,
     missingStd: [],
   };
@@ -717,6 +718,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           fills: fillsOf(result, bars),
           barColors: barColorsOf(result),
           inputs: meta.inputs,
+          alerts: result.alerts ?? [],
           warnings: [...meta.warnings, ...runtimeWarnings],
           missingStd: result.missing ?? [],
         };

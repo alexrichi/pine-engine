@@ -1,5 +1,6 @@
 import { Bar } from '../data/types';
 import { ScriptMetadata } from '../compiler/index';
+import type { PineAlert } from '../types';
 import { createEngine } from './engine';
 import { StrategyResult } from './builtins/strategy';
 
@@ -125,6 +126,8 @@ export interface ExecutionResult {
   plotcandles: PlotCandleData[];
   plotbars: PlotBarData[];
   strategy?: StrategyResult;
+  /** Alerts raised on the last (current) bar. */
+  alerts?: PineAlert[];
   // Drawing objects
   lines?: any[];
   labels?: any[];

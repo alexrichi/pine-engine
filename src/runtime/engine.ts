@@ -204,6 +204,7 @@ export function executeRunner(
     tables: ctx.table?.all ?? [],
     linefills: ctx.linefill?.all ?? [],
     polylines: ctx.polyline?.all ?? [],
+    alerts: internals.alerts,
     missing: [...internals.missing].sort(),
     warnings: internals.warnings,
   };

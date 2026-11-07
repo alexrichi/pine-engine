@@ -12,6 +12,7 @@ import { SymInfo, createSyminfo } from './builtins/syminfo';
 import { TimeframeInfo, createTimeframe, inSeconds, startOfTimeframe } from './builtins/timeframe';
 import { canonicalTimeframe } from './builtins/request';
 import { StrategyEngine, createStrategyEngine } from './builtins/strategy';
+import type { PineAlert } from '../types';
 import { createLineModule } from './builtins/line';
 import { createLabelModule } from './builtins/label';
 import { createBoxModule } from './builtins/box';
@@ -199,8 +200,8 @@ export interface RuntimeContext {
   strategy: StrategyEngine;
 
   // Alert stubs
-  alert(message: string, freq?: string): void;
-  alertcondition(condition: boolean, title?: string, message?: string): void;
+  alert(message: string, freq?: string, site?: string): void;
+  alertcondition(condition: unknown, title?: string, message?: string, site?: string): void;
 
   // Log object
   log: {
@@ -226,6 +227,7 @@ export interface ContextInternals {
   plotcandles: Map<number, PlotCandleData>;
   plotbars: Map<number, PlotBarData>;
   strategyEngine: StrategyEngine;
+  alerts: PineAlert[];
   missing: Set<string>;
   warnings: string[];
   updateBar(barIdx: number, builtins: BuiltinVariables, lastIndex: number): void;
@@ -357,6 +359,8 @@ export function createContext(
   const plotcandles = new Map<number, PlotCandleData>();
   const plotbars = new Map<number, PlotBarData>();
   const strategyEngine = createStrategyEngine();
+  const alerts: PineAlert[] = [];
+  const alertSites = new Set<string>();
   const userSeries = new Map<string, Series<any>>();
   const lineModule = createLineModule();
   const labelModule = createLabelModule();
@@ -908,12 +912,41 @@ export function createContext(
 
     strategy: strategyEngine,
 
-    alert(_message: string, _freq?: string): void {
-      // no-op stub
+    alert(message: string, freq?: string, site?: string): void {
+      if (currentBarIndex !== lastIndex) return;
+      const frequency = freq === undefined ? 'freq_once_per_bar' : String(freq);
+      // One alert per call site per bar unless the script asks for every tick.
+      if (site !== undefined && frequency !== 'freq_all') {
+        const key = `${currentBarIndex}:${site}`;
+        if (alertSites.has(key)) return;
+        alertSites.add(key);
+      }
+      alerts.push({
+        message: String(message ?? ''),
+        time: builtins.time.get(0),
+        barIndex: currentBarIndex,
+        ...(site !== undefined ? { site } : {}),
+        ...(freq !== undefined ? { freq: frequency } : {}),
+      });
     },
 
-    alertcondition(_condition: boolean, _title?: string, _message?: string): void {
-      // no-op stub
+    alertcondition(condition: unknown, title?: string, message?: string, site?: string): void {
+      if (currentBarIndex !== lastIndex) return;
+      const active = condition instanceof Series ? condition.get(0) : condition;
+      if (!active) return;
+      if (site !== undefined) {
+        const key = `${currentBarIndex}:${site}`;
+        if (alertSites.has(key)) return;
+        alertSites.add(key);
+      }
+      alerts.push({
+        message: String(message ?? ''),
+        ...(title !== undefined ? { title: String(title) } : {}),
+        ...(site !== undefined ? { site } : {}),
+        time: builtins.time.get(0),
+        barIndex: currentBarIndex,
+        freq: 'freq_once_per_bar',
+      });
     },
 
     log: {
@@ -966,6 +999,7 @@ export function createContext(
     plotcandles,
     plotbars,
     strategyEngine,
+    alerts,
     missing,
     warnings,
     updateBar,

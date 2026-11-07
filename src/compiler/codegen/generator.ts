@@ -1526,6 +1526,16 @@ private fnParams = new Set<string>();
       }
     }
 
+    // Alerts carry a generated call-site id so the host can dedupe one alert
+    // per bar instead of one per live tick.
+    if (calleeName === 'alert' || calleeName === 'alertcondition') {
+      const args = call.args.map((arg) => this.genExpr(arg.value));
+      const site = this.callSiteId();
+      return calleeName === 'alert'
+        ? `__rt.alert(${args[0] ?? '""'}, ${args[1] ?? 'undefined'}, ${site})`
+        : `__rt.alertcondition(${args[0] ?? 'false'}, ${args[1] ?? 'undefined'}, ${args[2] ?? 'undefined'}, ${site})`;
+    }
+
     // Try to map to runtime
     const mapped = this.mapper.mapFunction(calleeName);
     if (mapped !== undefined) {
@@ -1709,15 +1719,9 @@ private fnParams = new Set<string>();
       }
     }
 
-    // Runtime built times and alert stubs.
+    // Runtime built ins.
     if (calleeName === 'color') {
       return `__rt.colorCall(${this.genArgs(call.args)})`;
-    }
-    if (calleeName === 'alert') {
-      return `__rt.alert(${this.genArgs(call.args)})`;
-    }
-    if (calleeName === 'alertcondition') {
-      return `__rt.alertcondition(${this.genArgs(call.args)})`;
     }
 
     // Unknown - declared user functions are hoisted; anything else is an
