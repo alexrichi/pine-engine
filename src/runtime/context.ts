@@ -245,6 +245,8 @@ export interface ContextOptions {
   onLowerTimeframe?: (symbol: string, timeframe: string) => void;
   /** The chart's visible bar window for `chart.*_visible_bar_time`; absent = na. */
   visibleRange?: { left: number; right: number };
+  /** A shared cache for nested HTF/LTF security probes (one per engine session). */
+  securityProbeCache?: Map<string, unknown[]>;
   /** Present only inside a nested HTF security probe. */
   securityProbe?: import('./builtins/request').SecurityProbe;
 }

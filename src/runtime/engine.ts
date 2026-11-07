@@ -63,7 +63,7 @@ export function executeRunner(
   // A security call whose expression is not a source spec is evaluated by
   // running the whole script on the resampled HTF bars and snapshotting the
   // expression per HTF bar. One run per call site and timeframe.
-  const probeCache = new Map<string, unknown[]>();
+  const probeCache = options.securityProbeCache ?? new Map<string, unknown[]>();
   const runProbe = options.securityProbe?.active
     ? undefined
     : (site: string, timeframe: string): unknown[] => {

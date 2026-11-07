@@ -685,7 +685,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
   return {
     ok: true,
     meta,
-    run({ bars, timeframe, symbol, inputs, lowerBars, onLowerTimeframe, symbolInfo, live, visibleRange }: PineRunBars): PineRunResult {
+    run({ bars, timeframe, symbol, inputs, lowerBars, onLowerTimeframe, symbolInfo, live, visibleRange, securityProbeCache }: PineRunBars): PineRunResult {
       const values: Record<string, unknown> = { ...compileInputs, ...(inputs ?? {}) };
       try {
         const result = executeRunner(runner, bars.map(barOf), {
@@ -695,6 +695,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           symbolInfo: symbolInfo as import('./runtime/context').ContextOptions['symbolInfo'],
           live,
           visibleRange,
+          securityProbeCache,
           lowerBars: lowerBars
             ? Object.fromEntries(
                 Object.entries(lowerBars).map(([key, series]) => [key, series.map(barOf)]),
