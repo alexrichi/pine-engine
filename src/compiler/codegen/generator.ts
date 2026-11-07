@@ -191,6 +191,8 @@ export class CodeGenerator {
   private usedInputIds: Set<string> = new Set();
   /** Top-level literal constants, so `input.string(ALL, ...)` keeps its default. */
   private constLiterals = new Map<string, string | number | boolean>();
+  /** Names declared `const`: the only literal bindings that cannot be reassigned. */
+  private constNames: Set<string> = new Set();
   private userFunctions: Set<string> = new Set();
   /** Methods declared on builtin drawing types; called as plain functions. */
   private builtinMethods: Map<string, string> = new Map();
@@ -240,6 +242,7 @@ private fnParams = new Set<string>();
     this.callSiteIndex = 0;
     this.usedInputIds = new Set();
     this.constLiterals = new Map();
+    this.constNames = new Set();
     this.userFunctions = new Set();
     this.builtinMethods = new Map();
     this.thisAlias = null;
@@ -312,6 +315,7 @@ private fnParams = new Set<string>();
         const value = this.getLiteralValue(decl.value);
         if (value !== undefined && value !== null) {
           this.constLiterals.set(decl.name, value as string | number | boolean);
+          if (decl.typeAnnotation?.qualifier === 'const') this.constNames.add(decl.name);
         }
       }
       if (stmt.kind === 'AssignmentStatement') {
@@ -1298,7 +1302,34 @@ private fnParams = new Set<string>();
     return `${value}${op}`;
   }
 
+  /** The boolean value of a literal or a `const` identifier, else undefined. */
+  private constantBoolean(expr: Expression): boolean | undefined {
+    if (expr.kind === 'LiteralExpression') {
+      const value = (expr as LiteralExpression).value;
+      return typeof value === 'boolean' ? value : undefined;
+    }
+    if (expr.kind === 'IdentifierExpression') {
+      const name = (expr as IdentifierExpression).name;
+      if (!this.constNames.has(name)) return undefined;
+      const value = this.constLiterals.get(name);
+      return typeof value === 'boolean' ? value : undefined;
+    }
+    if (expr.kind === 'UnaryExpression' && (expr as UnaryExpression).operator === 'not') {
+      const inner = this.constantBoolean((expr as UnaryExpression).operand);
+      return inner === undefined ? undefined : !inner;
+    }
+    return undefined;
+  }
+
   private genConditional(expr: ConditionalExpression): string {
+    // A constant condition folds to the live branch, so inputs guarded by
+    // `DEBUG ? input... : default` never reach the settings dialog, as on TV.
+    // Only literals and `const` names fold: an ordinary variable can be
+    // reassigned later even when its initializer is a literal (`CHOCH = true`).
+    const constant = this.constantBoolean(expr.condition);
+    if (constant !== undefined) {
+      return this.genExpr(constant ? expr.consequent : expr.alternate);
+    }
     const cond = `__rt.scalar(${this.genExpr(expr.condition)})`;
     const cons = this.genExpr(expr.consequent);
     const alt = this.genExpr(expr.alternate);
@@ -1979,6 +2010,13 @@ private fnParams = new Set<string>();
 
     if (type === 'color' && defaultValue === undefined) {
       defaultValue = this.resolveColor(call.args[0]?.value) ?? '#2962FF';
+    }
+    // The generic `input(defval, ...)` takes its type from the default value,
+    // as on TV: `input(true)` is a checkbox, not a float field.
+    if (calleeName === 'input' && defaultValue !== undefined) {
+      if (typeof defaultValue === 'boolean') type = 'bool';
+      else if (typeof defaultValue === 'string') type = 'string';
+      else if (typeof defaultValue === 'number') type = Number.isInteger(defaultValue) ? 'int' : 'float';
     }
     if (type === 'source') {
       defaultValue = defaultSource;

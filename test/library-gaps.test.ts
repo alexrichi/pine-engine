@@ -44,6 +44,48 @@ plot(pick(2), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(1);
   });
 
+  it('does not register inputs in a statically dead ternary branch', () => {
+    const compiled = compilePine({
+      source: `//@version=6
+indicator("dead debug inputs")
+const bool DEBUG = false
+float mult = DEBUG ? input.float(3.5) : 3.5
+bool flag = DEBUG ? input.bool(true, display = display.none) : true
+plot(flag ? mult : 0, "value")
+`,
+    });
+    expect(compiled.ok).toBe(true);
+    expect(compiled.meta.inputs).toEqual([]);
+    const result = compiled.run({ bars, timeframe: '60', symbol: 'BINANCE:BTCUSDT.P' });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(3.5);
+  });
+
+  it('infers the type of a generic input from its default value', () => {
+    const compiled = compilePine({
+      source: `//@version=6
+indicator("generic inputs")
+a = input(true, "Toggle")
+b = input(3, "Count")
+c = input("x", "Text")
+plot(a ? 1 : 0, "a")
+`,
+    });
+    expect(compiled.ok).toBe(true);
+    expect(compiled.meta.inputs.map((input) => input.type)).toEqual(['bool', 'int', 'string']);
+  });
+
+  it('does not fold a reassigned variable whose initializer is a literal', () => {
+    const result = run(`//@version=6
+indicator("mutable condition")
+bool flag = true
+flag := false
+plot(flag ? 1 : 2, "value")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(2);
+  });
+
   it('keeps blank and duplicate input titles out of the settings keys', () => {
     const compiled = compilePine({
       source: `//@version=6
