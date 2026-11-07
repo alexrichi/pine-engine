@@ -232,6 +232,33 @@ plot(hits, "hits")
     expect(result.plots[0]!.values[0]).toBe(4);
   });
 
+  it('skips na gaps when ta.highest and ta.lowest read a local-block call site', () => {
+    const gapBars: PineBar[] = [
+      { time: 1_700_000_000_000, open: 0, high: 10, low: 5, close: 11, volume: 1 },
+      { time: 1_700_003_600_000, open: 100, high: 100, low: 90, close: 102, volume: 1 },
+      { time: 1_700_007_200_000, open: 21, high: 20, low: 10, close: 19, volume: 1 },
+      { time: 1_700_010_800_000, open: 30, high: 30, low: 15, close: 31, volume: 1 },
+    ];
+    const result = runPineScript({
+      source: `//@version=6
+indicator("highest local block")
+float hi = na
+float lo = na
+if close > open
+    hi := ta.highest(high, 2)
+    lo := ta.lowest(low, 2)
+plot(hi, "hi")
+plot(lo, "lo")
+`,
+      bars: gapBars,
+      timeframe: '60',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(100);
+    expect(result.plots[1]!.values.at(-1)).toBe(15);
+  });
+
   it('formats a compiled format.volume argument like TradingView', () => {
     const result = run(`//@version=6
 indicator("format volume")

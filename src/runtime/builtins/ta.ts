@@ -281,6 +281,35 @@ export function createTaModule(
     return entry.series;
   }
 
+  // Window functions (`ta.highest`, `ta.lowest`, ...) use the values of their
+  // CALLS, not the raw source bars: a call skipped by a ternary or another
+  // local block leaves an na gap that the window skips. Top-level calls record
+  // every bar, so they still see the whole source.
+  const callWindowSeries = new Map<string, { series: Series<number>; lastBar: number }>();
+  function asCallSeries(value: unknown, id: string, slot: number): Series<number> {
+    const bar = getCurrentBarIndex();
+    const key = `${id}:${slot}`;
+    const current = value instanceof Series ? value.get(0) : value;
+    let entry = callWindowSeries.get(key);
+    if (!entry) {
+      const series = new Series<number>(4096);
+      for (let i = 0; i < bar; i++) {
+        const past = value instanceof Series ? value.get(bar - i) : NA;
+        series.push(isNa(past) ? (NA as unknown as number) : (past as number));
+      }
+      entry = { series, lastBar: bar - 1 };
+      callWindowSeries.set(key, entry);
+    }
+    if (bar === entry.lastBar) {
+      entry.series.set(isNa(current) ? (NA as unknown as number) : (current as number));
+    } else {
+      for (let i = entry.lastBar + 1; i < bar; i++) entry.series.push(NA as unknown as number);
+      entry.series.push(isNa(current) ? (NA as unknown as number) : (current as number));
+      entry.lastBar = bar;
+    }
+    return entry.series;
+  }
+
   function pivotAt(source: Series<number>, leftBars: number, rightBars: number, high: boolean): number {
     const bars = source.length;
     const current = bars - 1;
@@ -680,25 +709,32 @@ export function createTaModule(
     },
 
     highest(source: Series<number>, length: number): number {
+      // TradingView's window is the last `length` NON-na values: a call skipped
+      // by a ternary or another local block leaves a gap that the window skips.
+      // From bar_index `length - 1` on, the fewer values seen so far still count.
       if (source.length < length) return NA as unknown as number;
       let max = -Infinity;
-      for (let i = 0; i < length; i++) {
+      let seen = 0;
+      for (let i = 0; i < source.length && seen < length; i++) {
         const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
+        if (isNa(v)) continue;
+        seen++;
         if ((v as number) > max) max = v as number;
       }
-      return max;
+      return seen > 0 ? max : (NA as unknown as number);
     },
 
     lowest(source: Series<number>, length: number): number {
       if (source.length < length) return NA as unknown as number;
       let min = Infinity;
-      for (let i = 0; i < length; i++) {
+      let seen = 0;
+      for (let i = 0; i < source.length && seen < length; i++) {
         const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
+        if (isNa(v)) continue;
+        seen++;
         if ((v as number) < min) min = v as number;
       }
-      return min;
+      return seen > 0 ? min : (NA as unknown as number);
     },
 
     // ========================================================================
@@ -2010,8 +2046,11 @@ export function createTaModule(
     const slots = SOURCE_SLOTS[name];
     if (slots) {
       const indices = slots === 'pivot' ? (args.length >= 3 ? [0] : []) : slots;
+      // Window functions keep the values of their calls, so a local block that
+      // skips the call leaves a gap the window must skip too.
+      const sourceOf = name === 'highest' || name === 'lowest' ? asCallSeries : asSeries;
       for (const slot of indices) {
-        if (slot < args.length) args[slot] = asSeries(args[slot], id, slot);
+        if (slot < args.length) args[slot] = sourceOf(args[slot], id, slot);
       }
     }
 
