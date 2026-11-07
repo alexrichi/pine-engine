@@ -244,7 +244,11 @@ export interface ContextOptions {
   live?: boolean;
   /** Lower-timeframe bars keyed `<symbol>@<canonical timeframe>`. */
   lowerBars?: Record<string, readonly import('../data/types').Bar[]>;
+  /** Foreign-symbol bars keyed `<symbol>@<canonical timeframe>`. */
+  foreignBars?: Record<string, readonly import('../data/types').Bar[]>;
   onLowerTimeframe?: (symbol: string, timeframe: string) => void;
+  /** Called when a foreign symbol's bars are not in `foreignBars` yet. */
+  onForeignSymbol?: (symbol: string, timeframe: string) => void;
   /** The chart's visible bar window for `chart.*_visible_bar_time`; absent = na. */
   visibleRange?: { left: number; right: number };
   /** A shared cache for nested HTF/LTF security probes (one per engine session). */

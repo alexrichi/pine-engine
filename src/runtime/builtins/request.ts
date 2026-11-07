@@ -1,9 +1,9 @@
 // Pine Script v6 request.security() runtime module.
 //
-// The engine only has the chart's own bars plus optional lower-timeframe bars
-// supplied by the host. Higher timeframes are resampled from the chart; lower
-// timeframes use the supplied intrabar series. Anything else returns `na` with
-// a warning instead of silently returning the chart's values.
+// The engine only has the chart's own bars plus optional lower-timeframe and
+// foreign-symbol bars supplied by the host. Higher timeframes of the chart are
+// resampled from the chart; anything the host has not supplied returns `na`
+// with a warning instead of silently returning the chart's values.
 
 import { Series } from '../types/series';
 import { NA } from '../types/na';
@@ -52,13 +52,32 @@ export function canonicalTimeframe(timeframe: string): string {
   return ALIASES[timeframe] ?? ALIASES[timeframe.toLowerCase()] ?? timeframe;
 }
 
-function sameSymbol(requested: unknown, current: string): boolean {
+export function sameSymbol(requested: unknown, current: string): boolean {
   if (requested === null || requested === undefined || requested === '') return true;
   const value = String(requested);
   if (value === current) return true;
   // Scripts commonly pass syminfo.tickerid; a bare root also matches the chart.
   const root = current.includes(':') ? current.split(':').pop()! : current;
   return value === root || (value.includes(':') && value.split(':').pop() === root);
+}
+
+/** The host-supplied bars for a foreign symbol at one timeframe. */
+export function foreignSeriesOf(
+  foreignBars: Record<string, readonly Bar[]> | undefined,
+  symbol: unknown,
+  timeframe: string,
+): readonly Bar[] | undefined {
+  if (!foreignBars) return undefined;
+  const requested = canonicalTimeframe(timeframe);
+  const exact = foreignBars[`${String(symbol)}@${requested}`];
+  if (exact) return exact;
+  for (const [key, series] of Object.entries(foreignBars)) {
+    const at = key.lastIndexOf('@');
+    if (at < 0) continue;
+    if (canonicalTimeframe(key.slice(at + 1)) !== requested) continue;
+    if (sameSymbol(symbol, key.slice(0, at))) return series;
+  }
+  return undefined;
 }
 
 interface Bucket {
@@ -205,11 +224,14 @@ export function createRequestModule(
   getCurrentSymbol: () => string = () => '',
   onWarning: (message: string) => void = () => {},
   lowerBars: Record<string, readonly Bar[]> = {},
+  foreignBars: Record<string, readonly Bar[]> = {},
   onLowerTimeframe: (symbol: string, timeframe: string) => void = () => {},
-  runProbe?: (site: string, timeframe: string) => unknown[],
+  onForeignSymbol?: (symbol: string, timeframe: string) => void,
+  runProbe?: (site: string, timeframe: string, symbol?: string) => unknown[],
   securityProbe?: SecurityProbe,
 ): RequestModule {
   const warned = new Set<string>();
+  const foreignAsked = new Set<string>();
   const bucketCache = new Map<string, { buckets: Bucket[]; lookup: Int32Array }>();
   const atrCache = new Map<string, number[]>();
 
@@ -261,6 +283,56 @@ export function createRequestModule(
     return { series, start: lo, end };
   }
 
+  /**
+   * The foreign bar a chart bar reads. The host supplies foreign bars at the
+   * requested timeframe, so this only selects the bar and applies the
+   * lookahead/gaps contract; it never resamples.
+   */
+  function foreignBarIndex(
+    series: readonly Bar[],
+    timeframe: string,
+    bar: Bar,
+    gaps: string,
+    lookahead: string,
+  ): number {
+    if (series.length === 0) return -1;
+    const current = timeframeSeconds(canonicalTimeframe(getCurrentTimeframe()));
+    const requested = timeframeSeconds(canonicalTimeframe(timeframe));
+    const lookaheadOn = lookahead === 'barmerge.lookahead_on' || lookahead === 'lookahead_on';
+    const gapsOn = gaps === 'barmerge.gaps_on' || gaps === 'gaps_on';
+
+    if (requested > 0 && requested < current) {
+      const from = bar.time;
+      const to = from + current * 1000;
+      let lo = 0;
+      let hi = series.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (series[mid]!.time < from) lo = mid + 1;
+        else hi = mid;
+      }
+      let end = lo;
+      while (end < series.length && series[end]!.time < to) end += 1;
+      return lookaheadOn ? end - 1 : end - 2;
+    }
+
+    let lo = 0;
+    let hi = series.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (series[mid]!.time <= bar.time) lo = mid + 1;
+      else hi = mid;
+    }
+    const index = lo - 1;
+    if (index < 0) return -1;
+    if (requested > current) {
+      if (gapsOn && series[index]!.time !== bar.time) return -1;
+      return lookaheadOn ? index : index - 1;
+    }
+    // Same timeframe: the bars must line up exactly.
+    return series[index]!.time === bar.time ? index : -1;
+  }
+
   function sourceValue(bar: Bar, index: number, name: string): number {
     if (name === 'time') return bar.time;
     if (name === 'bar_index') return index;
@@ -310,6 +382,18 @@ export function createRequestModule(
       return atrValues(spec.args[0]!, series, key)[index] ?? NA;
     }
     return sourceValue(bar, index, spec.name ?? '');
+  }
+
+  function requestForeign(symbol: unknown, timeframe: string): void {
+    const requested = canonicalTimeframe(timeframe);
+    const key = `${String(symbol ?? '')}@${requested}`;
+    if (foreignAsked.has(key)) return;
+    foreignAsked.add(key);
+    if (onForeignSymbol) {
+      onForeignSymbol(String(symbol ?? ''), requested);
+      return;
+    }
+    warn(String(symbol ?? ''), requested);
   }
 
   function warn(symbol: string, timeframe: string, lower = false, ignore = false): void {
@@ -369,7 +453,21 @@ export function createRequestModule(
     }
 
     if (!sameSymbol(symbol, getCurrentSymbol())) {
-      warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
+      const series = foreignSeriesOf(foreignBars, symbol, requested);
+      if (!series) {
+        requestForeign(symbol, requested);
+        return empty();
+      }
+      if (siteId && runProbe) {
+        const snapshots = runProbe(siteId, requested, String(symbol ?? ''));
+        const current = bars[getCurrentBarIndex()];
+        if (current) {
+          const index = foreignBarIndex(series, requested, current, gaps, lookahead);
+          if (index >= 0 && snapshots[index] !== undefined) {
+            return cloneSnapshot(snapshots[index]);
+          }
+        }
+      }
       return empty();
     }
     if (requested !== currentTimeframe) {
@@ -467,8 +565,22 @@ export function createRequestModule(
       const empty = () => (tuple ? specs.map(() => NA) : NA);
 
       if (!sameSymbol(symbol, getCurrentSymbol())) {
-        warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
-        return empty();
+        const series = foreignSeriesOf(foreignBars, symbol, requested);
+        if (!series) {
+          requestForeign(symbol, requested);
+          return empty();
+        }
+        const current = bars[getCurrentBarIndex()];
+        if (!current) return empty();
+        const index = foreignBarIndex(series, requested, current, gaps, lookahead);
+        if (index < 0) return empty();
+        const values = specs.map((spec) => {
+          if (!spec) return NA;
+          const target = index - (spec.offset ?? 0);
+          if (target < 0 || target >= series.length) return NA;
+          return specValue(spec, series[target]!, target, series, `${String(symbol)}:${requested}`);
+        });
+        return tuple ? values : values[0];
       }
 
       const currentIndex = getCurrentBarIndex();

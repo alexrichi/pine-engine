@@ -2,7 +2,7 @@ import type { Bar } from '../data/types';
 import { createBuiltinVariables } from './builtins/variables';
 import { createTaModule } from './builtins/ta';
 import { createContext, type ContextOptions } from './context';
-import { createRequestModule, cloneSnapshot, resampleBars, canonicalTimeframe, timeframeSeconds } from './builtins/request';
+import { createRequestModule, cloneSnapshot, resampleBars, canonicalTimeframe, timeframeSeconds, foreignSeriesOf, sameSymbol } from './builtins/request';
 import { getFixnanState, resetNaState, setFixnanState } from './types/na';
 import { Series } from './types/series';
 import type {
@@ -66,15 +66,27 @@ export function executeRunner(
   const probeCache = options.securityProbeCache ?? new Map<string, unknown[]>();
   const runProbe = options.securityProbe?.active
     ? undefined
-    : (site: string, timeframe: string): unknown[] => {
-        const key = `${site}@${timeframe}`;
+    : (site: string, timeframe: string, symbol?: string): unknown[] => {
+        const foreign = symbol !== undefined && !sameSymbol(symbol, options.symbol ?? '');
+        const key = `${site}@${foreign ? symbol : ''}@${timeframe}`;
         const cached = probeCache.get(key);
         if (cached) return cached;
         const requested = canonicalTimeframe(timeframe);
         const current = canonicalTimeframe(options.timeframe ?? '');
         const lower = timeframeSeconds(requested) > 0 && timeframeSeconds(requested) < timeframeSeconds(current);
         let probeBars: Bar[];
-        if (lower) {
+        if (foreign) {
+          const series = foreignSeriesOf(options.foreignBars, symbol, requested);
+          if (!series) return [];
+          probeBars = series.map((bar) => ({
+            time: bar.time,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+            volume: bar.volume ?? 0,
+          }));
+        } else if (lower) {
           const entry = Object.entries(options.lowerBars ?? {}).find(([barKey]) => {
             const at = barKey.lastIndexOf('@');
             return at >= 0 && canonicalTimeframe(barKey.slice(at + 1)) === requested;
@@ -98,9 +110,13 @@ export function executeRunner(
         try {
           executeRunner(runner, probeBars, {
             ...options,
+            symbol: foreign ? symbol : options.symbol,
+            symbolInfo: foreign ? undefined : options.symbolInfo,
             timeframe,
             lowerBars: undefined,
+            foreignBars: undefined,
             onLowerTimeframe: undefined,
+            onForeignSymbol: undefined,
             securityProbe: {
               active: true,
               site,
@@ -130,7 +146,9 @@ export function executeRunner(
     () => options.symbol ?? '',
     (message) => internals.warnings.push(message),
     options.lowerBars,
+    options.foreignBars,
     options.onLowerTimeframe,
+    options.onForeignSymbol,
     runProbe,
     options.securityProbe,
   );

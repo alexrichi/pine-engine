@@ -284,8 +284,12 @@ export interface PineRunBars {
    * Used by `request.security` and `request.security_lower_tf`.
    */
   lowerBars?: Record<string, readonly PineBar[]>;
+  /** Bars for a foreign `request.security` symbol, keyed the same way. */
+  foreignBars?: Record<string, readonly PineBar[]>;
   /** Called when a script asks for a lower timeframe that the host can supply. */
   onLowerTimeframe?: (symbol: string, timeframe: string) => void;
+  /** Called when a foreign symbol's bars are not supplied yet. */
+  onForeignSymbol?: (symbol: string, timeframe: string) => void;
   /** The chart's visible bar window for `chart.*_visible_bar_time`; absent = na. */
   visibleRange?: { left: number; right: number };
   /** A shared cache for nested HTF/LTF security probes (one per engine session). */
