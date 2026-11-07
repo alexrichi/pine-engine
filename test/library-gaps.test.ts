@@ -61,6 +61,45 @@ plot(flag ? mult : 0, "value")
     expect(result.plots[0]!.values.at(-1)).toBe(3.5);
   });
 
+  it('probes a UDT array through a lower-timeframe security call', () => {
+    const start = Date.UTC(2024, 0, 1);
+    const lower: PineBar[] = Array.from({ length: 32 }, (_, index) => ({
+      time: start + index * 15 * 60_000,
+      open: 10 + index,
+      high: 12 + index,
+      low: 9 + index,
+      close: 10.5 + index,
+      volume: 1,
+    }));
+    const chart: PineBar[] = Array.from({ length: 8 }, (_, index) => ({
+      time: start + index * 3_600_000,
+      open: 10 + index,
+      high: 12 + index,
+      low: 9 + index,
+      close: 10.5 + index,
+      volume: 1,
+    }));
+    const result = runPineScript({
+      source: `//@version=6
+indicator("security lower array")
+type Item
+    float v
+var items = array.new<Item>()
+array.push(items, Item.new(close))
+[n] = request.security(syminfo.tickerid, "15", [items])
+plot(array.size(n), "n")
+`,
+      bars: chart,
+      timeframe: '60',
+      symbol: 'BINANCE:BTCUSDT.P',
+      lowerBars: { 'BINANCE:BTCUSDT.P@15': lower },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+    // The last 1H bar covers the last four 15m bars; the array held 32 items.
+    expect(result.plots[0]!.values.at(-1)).toBe(32);
+  });
+
   it('probes a mixed security tuple with a TA expression', () => {
     const bars: PineBar[] = Array.from({ length: 8 }, (_, index) => {
       const open = 10 + index;

@@ -72,7 +72,7 @@ interface Bucket {
   volume: number;
 }
 
-function timeframeSeconds(tf: string): number {
+export function timeframeSeconds(tf: string): number {
   if (tf === 'D') return 86_400;
   if (tf === 'W') return 604_800;
   if (tf === 'M') return 2_592_000;
@@ -378,6 +378,16 @@ export function createRequestModule(
       const lower = requestedSeconds > 0 && requestedSeconds < currentSeconds;
       if (lower) {
         onLowerTimeframe(String(symbol ?? getCurrentSymbol()), requested);
+        if (siteId && runProbe) {
+          const snapshots = runProbe(siteId, requested);
+          if (snapshots.length > 0) {
+            const slice = lowerSlice(symbol, requested);
+            if (slice && slice.end > slice.start) {
+              const value = snapshots[slice.end - 1];
+              if (value !== undefined) return cloneSnapshot(value);
+            }
+          }
+        }
         warn(String(symbol ?? ''), requested, true, ignoreInvalidTimeframe);
         return empty();
       }

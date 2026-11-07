@@ -2,7 +2,7 @@ import type { Bar } from '../data/types';
 import { createBuiltinVariables } from './builtins/variables';
 import { createTaModule } from './builtins/ta';
 import { createContext, type ContextOptions } from './context';
-import { createRequestModule, cloneSnapshot, resampleBars } from './builtins/request';
+import { createRequestModule, cloneSnapshot, resampleBars, canonicalTimeframe, timeframeSeconds } from './builtins/request';
 import { getFixnanState, resetNaState, setFixnanState } from './types/na';
 import { Series } from './types/series';
 import type {
@@ -70,13 +70,33 @@ export function executeRunner(
         const key = `${site}@${timeframe}`;
         const cached = probeCache.get(key);
         if (cached) return cached;
-        const htfBars = resampleBars(bars, timeframe);
-        if (htfBars.length === 0) return [];
+        const requested = canonicalTimeframe(timeframe);
+        const current = canonicalTimeframe(options.timeframe ?? '');
+        const lower = timeframeSeconds(requested) > 0 && timeframeSeconds(requested) < timeframeSeconds(current);
+        let probeBars: Bar[];
+        if (lower) {
+          const entry = Object.entries(options.lowerBars ?? {}).find(([barKey]) => {
+            const at = barKey.lastIndexOf('@');
+            return at >= 0 && canonicalTimeframe(barKey.slice(at + 1)) === requested;
+          });
+          if (!entry) return [];
+          probeBars = entry[1].map((bar) => ({
+            time: bar.time,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+            volume: bar.volume ?? 0,
+          }));
+        } else {
+          probeBars = resampleBars(bars, timeframe);
+        }
+        if (probeBars.length === 0) return [];
         const capture: unknown[] = [];
         const savedFixnan = getFixnanState();
         resetNaState();
         try {
-          executeRunner(runner, htfBars, {
+          executeRunner(runner, probeBars, {
             ...options,
             timeframe,
             lowerBars: undefined,
