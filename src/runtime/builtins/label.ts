@@ -1,4 +1,5 @@
 import { numeric } from '../types/series';
+import { NA } from '../types/na';
 
 export interface LabelObject {
   id: number;
@@ -175,15 +176,15 @@ export function createLabelModule() {
     },
 
     get_x(label: LabelObject): number {
-      return label.x;
+      return label && typeof label === 'object' ? label.x : NA as unknown as number;
     },
 
     get_y(label: LabelObject): number {
-      return label.y;
+      return label && typeof label === 'object' ? label.y : NA as unknown as number;
     },
 
     get_text(label: LabelObject): string {
-      return label.text;
+      return label && typeof label === 'object' ? label.text : NA as unknown as string;
     },
 
     copy(label: LabelObject): LabelObject {

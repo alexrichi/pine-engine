@@ -210,6 +210,31 @@ plot(hits, "hits")
     expect(result.plots[0]!.values[0]).toBe(4);
   });
 
+  it('returns na from a drawing getter on a missing drawing', () => {
+    const result = run(`//@version=6
+indicator("na drawing")
+line l = na
+plot(line.get_x2(l), "x")
+plot(line.get_y1(l), "y")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values[0]).toBeNaN();
+    expect(result.plots[1]!.values[0]).toBeNaN();
+  });
+
+  it('counts down when an explicit step is given', () => {
+    const result = run(`//@version=6
+indicator("descending for by")
+var int hits = 0
+if bar_index == 0
+    for i = 3 to 0 by 1
+        hits := hits + 1
+plot(hits, "hits")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values[0]).toBe(4);
+  });
+
   it('keeps a tuple local distinct from a same-named var in another function', () => {
     const result = run(`//@version=6
 indicator("tuple shadow")

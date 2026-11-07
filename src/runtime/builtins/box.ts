@@ -1,4 +1,5 @@
 import { numeric } from '../types/series';
+import { NA } from '../types/na';
 
 export interface BoxObject {
   id: number;
@@ -239,19 +240,19 @@ export function createBoxModule() {
     },
 
     get_left(box: BoxObject): number {
-      return box.left;
+      return box && typeof box === 'object' ? box.left : NA as unknown as number;
     },
 
     get_top(box: BoxObject): number {
-      return box.top;
+      return box && typeof box === 'object' ? box.top : NA as unknown as number;
     },
 
     get_right(box: BoxObject): number {
-      return box.right;
+      return box && typeof box === 'object' ? box.right : NA as unknown as number;
     },
 
     get_bottom(box: BoxObject): number {
-      return box.bottom;
+      return box && typeof box === 'object' ? box.bottom : NA as unknown as number;
     },
 
     copy(box: BoxObject): BoxObject {

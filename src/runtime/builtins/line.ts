@@ -1,4 +1,5 @@
 import { numeric } from '../types/series';
+import { NA } from '../types/na';
 
 function pointXY(point: unknown): { x: number; y: number } | null {
   if (Array.isArray(point) && point.length >= 2) {
@@ -165,22 +166,23 @@ export function createLineModule() {
     },
 
     get_x1(line: LineObject): number {
-      return line.x1;
+      return line && typeof line === 'object' ? line.x1 : NA as unknown as number;
     },
 
     get_y1(line: LineObject): number {
-      return line.y1;
+      return line && typeof line === 'object' ? line.y1 : NA as unknown as number;
     },
 
     get_x2(line: LineObject): number {
-      return line.x2;
+      return line && typeof line === 'object' ? line.x2 : NA as unknown as number;
     },
 
     get_y2(line: LineObject): number {
-      return line.y2;
+      return line && typeof line === 'object' ? line.y2 : NA as unknown as number;
     },
 
     get_price(line: LineObject, x: number): number {
+      if (!line || typeof line !== 'object') return NA as unknown as number;
       const dx = line.x2 - line.x1;
       if (dx === 0) {
         return line.y1;

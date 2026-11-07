@@ -1080,10 +1080,12 @@ private fnParams = new Set<string>();
     out.push(this.indent() + `var ${from} = __rt.scalar(${start});`);
     out.push(this.indent() + `var ${to} = __rt.scalar(${end});`);
     if (stmt.step) {
-      // An explicit step keeps its own sign, as Pine does.
+      // Pine requires a positive step magnitude; the from/to bounds pick the
+      // direction, so `for i = size - 1 to 0 by 1` still counts down.
       const step = `__forStep${id}`;
-      out.push(this.indent() + `var ${step} = __rt.scalar(${this.genExpr(stmt.step)});`);
-      out.push(this.indent() + `for (var ${v} = ${from}; ${step} >= 0 ? ${v} <= ${to} : ${v} >= ${to}; ${v} += ${step}) {`);
+      const dir = `__forDir${id}`;
+      out.push(this.indent() + `var ${step} = Math.abs(__rt.scalar(${this.genExpr(stmt.step)}));`);
+      out.push(this.indent() + `for (var ${v} = ${from}, ${dir} = ${from} <= ${to} ? 1 : -1; ${dir} > 0 ? ${v} <= ${to} : ${v} >= ${to}; ${v} += ${dir} * ${step}) {`);
     } else {
       // Pine counts down when `from` is greater than `to`, even without `by -1`.
       const dir = `__forDir${id}`;
