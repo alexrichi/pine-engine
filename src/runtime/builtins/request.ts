@@ -561,8 +561,11 @@ export function createRequestModule(
       const specs = sourceSpecs(sources);
       const currentTf = canonicalTimeframe(getCurrentTimeframe());
       const requested = canonicalTimeframe(timeframe || currentTf);
-      if (specs.some((spec) => spec === null)) unsupportedSources(String(symbol ?? ''), requested);
       const empty = () => (tuple ? specs.map(() => NA) : NA);
+      // Inside a probe only the target security call site contributes; every
+      // other call is na, without warnings or host fetches.
+      if (securityProbe?.active) return empty();
+      if (specs.some((spec) => spec === null)) unsupportedSources(String(symbol ?? ''), requested);
 
       if (!sameSymbol(symbol, getCurrentSymbol())) {
         const series = foreignSeriesOf(foreignBars, symbol, requested);
@@ -641,8 +644,9 @@ export function createRequestModule(
       const currentTf = canonicalTimeframe(getCurrentTimeframe());
       const requested = canonicalTimeframe(timeframe || currentTf);
       const currentIndex = getCurrentBarIndex();
-      if (sources.some((spec) => spec === null)) unsupportedSources(String(symbol ?? ''), requested);
       const empty = () => sources.map(() => [NA]);
+      if (securityProbe?.active) return empty();
+      if (sources.some((spec) => spec === null)) unsupportedSources(String(symbol ?? ''), requested);
       if (!sameSymbol(symbol, getCurrentSymbol())) {
         warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
         return empty();
@@ -683,6 +687,7 @@ export function createRequestModule(
     ): any {
       const currentTf = canonicalTimeframe(getCurrentTimeframe());
       const requested = canonicalTimeframe(timeframe || currentTf);
+      if (securityProbe?.active) return Array.isArray(expression) ? expression.map(() => [NA]) : [NA];
       if (!sameSymbol(symbol, getCurrentSymbol())) {
         warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
       } else if (requested !== currentTf) {
