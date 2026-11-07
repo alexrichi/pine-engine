@@ -142,6 +142,7 @@ function metaOf(compiled: CompileResult, name: string): PineScriptMeta {
     overlay: metadata?.overlay ?? false,
     inputs: (metadata?.inputs ?? []).map(inputOf),
     plots: (metadata?.plots ?? []).map(plotMeta),
+    initialCapital: metadata?.initialCapital,
     warnings: warningsOf(compiled),
   };
 }
@@ -697,6 +698,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           live,
           visibleRange,
           securityProbeCache,
+          strategyInitialCapital: meta.initialCapital,
           lowerBars: lowerBars
             ? Object.fromEntries(
                 Object.entries(lowerBars).map(([key, series]) => [key, series.map(barOf)]),
@@ -719,6 +721,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           barColors: barColorsOf(result),
           inputs: meta.inputs,
           alerts: result.alerts ?? [],
+          strategy: result.strategy,
           warnings: [...meta.warnings, ...runtimeWarnings],
           missingStd: result.missing ?? [],
         };

@@ -249,6 +249,8 @@ export interface ContextOptions {
   visibleRange?: { left: number; right: number };
   /** A shared cache for nested HTF/LTF security probes (one per engine session). */
   securityProbeCache?: Map<string, unknown[]>;
+  /** A strategy's declared `initial_capital`. */
+  strategyInitialCapital?: number;
   /** Present only inside a nested HTF security probe. */
   securityProbe?: import('./builtins/request').SecurityProbe;
 }
@@ -358,7 +360,7 @@ export function createContext(
   const plotarrows = new Map<number, PlotArrowData>();
   const plotcandles = new Map<number, PlotCandleData>();
   const plotbars = new Map<number, PlotBarData>();
-  const strategyEngine = createStrategyEngine();
+  const strategyEngine = createStrategyEngine(options.strategyInitialCapital);
   const alerts: PineAlert[] = [];
   const alertSites = new Set<string>();
   const userSeries = new Map<string, Series<any>>();

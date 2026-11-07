@@ -19,6 +19,8 @@ export interface ScriptMetadata {
   overlay: boolean;
   inputs: InputDef[];
   plots: PlotDef[];
+  /** A strategy's declared `initial_capital`; absent for indicators. */
+  initialCapital?: number;
 }
 
 export interface InputDef {

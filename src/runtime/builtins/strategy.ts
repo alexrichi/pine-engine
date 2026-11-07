@@ -2,6 +2,7 @@
 
 export interface ClosedTrade {
   id: string;
+  entryId: string;
   direction: 'long' | 'short';
   entryPrice: number;
   exitPrice: number;
@@ -13,6 +14,15 @@ export interface ClosedTrade {
   exitTime: number;
 }
 
+export interface OpenTrade {
+  direction: 'long' | 'short';
+  qty: number;
+  avgPrice: number;
+  entryBar: number;
+  entryTime: number;
+  entryId: string;
+}
+
 export interface StrategyResult {
   trades: ClosedTrade[];
   equityCurve: { time: number; equity: number }[];
@@ -21,6 +31,14 @@ export interface StrategyResult {
   winRate: number;
   profitFactor: number;
   maxDrawdown: number;
+  maxRunup: number;
+  initialCapital: number;
+  grossProfit: number;
+  grossLoss: number;
+  equity: number;
+  openPnl: number;
+  /** The position still open at the last bar, if any. */
+  position: OpenTrade | null;
 }
 
 interface PendingOrder {
@@ -48,7 +66,7 @@ interface OpenPosition {
 export interface StrategyEngine {
   entry(id: string, direction: string, qty?: number, limit?: number, stop?: number): void;
   close(id?: string, qty?: number): void;
-  exit(id: string, fromEntry?: string, profit?: number, loss?: number, limit?: number, stop?: number): void;
+  exit(id: string, fromEntry?: string, qty?: number, qtyPercent?: number, profit?: number, limit?: number, loss?: number, stop?: number): void;
   order(id: string, direction: string, qty: number, limit?: number, stop?: number): void;
   cancel(id: string): void;
   cancelAll(): void;
@@ -56,6 +74,8 @@ export interface StrategyEngine {
   convertToAccount(value: number): number;
   convertToSymbol(value: number): number;
   defaultEntryQty(value?: number): number;
+  /** One field of a closed trade, for `strategy.closedtrades.<field>(n)`. */
+  closedTrade(field: string, index: number): unknown;
 
   // Properties
   position_size: number;
@@ -123,10 +143,18 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
         position.qty = totalQty;
       }
     } else {
-      // Exit / close order
+      // Exit / close order. qty 0 means the whole position.
       if (position) {
-        const qtyToClose = Math.min(order.qty, position.qty);
+        const qtyToClose = order.qty > 0 ? Math.min(order.qty, position.qty) : position.qty;
         closePositionPartial(fillPrice, qtyToClose, order.id);
+        // A bracket's stop and limit ride together; the first fill cancels the
+        // sibling so it cannot close a later position that reuses the entry id.
+        if (order.fromEntry !== undefined) {
+          for (let index = pendingOrders.length - 1; index >= 0; index -= 1) {
+            const other = pendingOrders[index]!;
+            if (!other.isEntry && other.fromEntry === order.fromEntry) pendingOrders.splice(index, 1);
+          }
+        }
       }
     }
   }
@@ -149,6 +177,7 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
 
     closedTrades.push({
       id: exitId,
+      entryId: position.entryId,
       direction: position.direction,
       entryPrice: position.avgPrice,
       exitPrice,
@@ -182,6 +211,23 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
     for (const order of pendingOrders) {
       let filled = false;
 
+      // An exit waits for the position it belongs to. A bracket queued before
+      // its entry fills must not close an unrelated position.
+      if (!order.isEntry) {
+        if (!position) {
+          if (order.fromEntry !== undefined) remaining.push(order);
+          continue;
+        }
+        if (order.fromEntry !== undefined && position.entryId !== order.fromEntry) continue;
+      }
+
+      // An exit trades against the position, whatever direction it was queued with.
+      const direction = order.isEntry
+        ? order.direction
+        : position!.direction === 'long'
+          ? 'short'
+          : 'long';
+
       if (order.type === 'market') {
         // Market orders fill at this bar's open
         fillOrder(order, barOpen);
@@ -189,20 +235,20 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       } else if (order.type === 'limit') {
         // Limit buy fills if low <= limitPrice; limit sell fills if high >= limitPrice
         const limitPrice = order.limitPrice!;
-        if (order.direction === 'long' && barLow <= limitPrice) {
+        if (direction === 'long' && barLow <= limitPrice) {
           fillOrder(order, limitPrice);
           filled = true;
-        } else if (order.direction === 'short' && barHigh >= limitPrice) {
+        } else if (direction === 'short' && barHigh >= limitPrice) {
           fillOrder(order, limitPrice);
           filled = true;
         }
       } else if (order.type === 'stop') {
         // Stop buy fills if high >= stopPrice; stop sell fills if low <= stopPrice
         const stopPrice = order.stopPrice!;
-        if (order.direction === 'long' && barHigh >= stopPrice) {
+        if (direction === 'long' && barHigh >= stopPrice) {
           fillOrder(order, stopPrice);
           filled = true;
-        } else if (order.direction === 'short' && barLow <= stopPrice) {
+        } else if (direction === 'short' && barLow <= stopPrice) {
           fillOrder(order, stopPrice);
           filled = true;
         }
@@ -265,22 +311,22 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       });
     },
 
-    exit(id: string, fromEntry?: string, profit?: number, loss?: number, limit?: number, stop?: number): void {
-      if (!position) return;
-      if (fromEntry && position.entryId !== fromEntry) return;
+    exit(id: string, fromEntry?: string, qty?: number, qtyPercent?: number, profit?: number, limit?: number, loss?: number, stop?: number): void {
+      if (position && fromEntry && position.entryId !== fromEntry) return;
+      if (!position && fromEntry === undefined) return;
 
-      // Calculate limit/stop from profit/loss ticks relative to entry
+      // Calculate limit/stop from profit/loss ticks relative to entry. Before the
+      // entry fills only absolute prices make sense; profit/loss wait for it.
       let exitLimit = limit;
       let exitStop = stop;
-
-      if (profit !== undefined && exitLimit === undefined) {
+      if (position && profit !== undefined && exitLimit === undefined) {
         if (position.direction === 'long') {
           exitLimit = position.avgPrice + profit;
         } else {
           exitLimit = position.avgPrice - profit;
         }
       }
-      if (loss !== undefined && exitStop === undefined) {
+      if (position && loss !== undefined && exitStop === undefined) {
         if (position.direction === 'long') {
           exitStop = position.avgPrice - loss;
         } else {
@@ -288,12 +334,23 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
         }
       }
 
+      // qty 0 = the whole position, resolved when the order fills. An exit
+      // queued before its entry must not close an unrelated position.
+      const resolvedQty = qtyPercent !== undefined
+        ? Math.max(1, Math.floor((position?.qty ?? 0) * qtyPercent / 100))
+        : (qty ?? 0);
+      const direction = position
+        ? position.direction === 'long'
+          ? 'short'
+          : 'long'
+        : 'short';
+
       // Create limit exit if specified
       if (exitLimit !== undefined) {
         queuedOrders.push({
           id,
-          direction: position.direction === 'long' ? 'short' : 'long',
-          qty: position.qty,
+          direction,
+          qty: resolvedQty,
           type: 'limit',
           limitPrice: exitLimit,
           isEntry: false,
@@ -305,8 +362,8 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       if (exitStop !== undefined) {
         queuedOrders.push({
           id: id + '_stop',
-          direction: position.direction === 'long' ? 'short' : 'long',
-          qty: position.qty,
+          direction,
+          qty: resolvedQty,
           type: 'stop',
           stopPrice: exitStop,
           isEntry: false,
@@ -318,8 +375,8 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       if (exitLimit === undefined && exitStop === undefined) {
         queuedOrders.push({
           id,
-          direction: position.direction === 'long' ? 'short' : 'long',
-          qty: position.qty,
+          direction,
+          qty: resolvedQty,
           type: 'market',
           isEntry: false,
           fromEntry,
@@ -384,6 +441,25 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
 
     defaultEntryQty(value?: number): number {
       return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
+    },
+
+    closedTrade(field: string, index: number): unknown {
+      const trade = closedTrades[index];
+      if (!trade) return Number.NaN;
+      switch (field) {
+        case 'profit': return trade.profit;
+        case 'commission': return 0;
+        case 'size': return trade.qty;
+        case 'entry_price': return trade.entryPrice;
+        case 'exit_price': return trade.exitPrice;
+        case 'entry_bar_index': return trade.entryBar;
+        case 'exit_bar_index': return trade.exitBar;
+        case 'entry_time': return trade.entryTime;
+        case 'exit_time': return trade.exitTime;
+        case 'entry_id': return trade.entryId;
+        case 'exit_id': return trade.id;
+        default: return Number.NaN;
+      }
     },
 
     // Properties
@@ -458,23 +534,45 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       const totalLoss = closedTrades.filter(t => t.profit < 0).reduce((s, t) => s + Math.abs(t.profit), 0);
       const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : (totalProfit > 0 ? Infinity : 0);
 
-      // Calculate max drawdown from equity curve
+      // Calculate max drawdown and runup from the equity curve
       let peak = capital;
+      let trough = capital;
       let maxDrawdown = 0;
+      let maxRunup = 0;
       for (const point of equityCurve) {
         if (point.equity > peak) peak = point.equity;
+        if (point.equity < trough) trough = point.equity;
         const drawdown = peak - point.equity;
         if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+        const runup = point.equity - trough;
+        if (runup > maxRunup) maxRunup = runup;
       }
 
+      const openPnl = getUnrealizedPnL();
       return {
         trades: closedTrades,
         equityCurve,
-        netProfit: currentEquity - capital + getUnrealizedPnL(),
+        netProfit: currentEquity - capital + openPnl,
         totalTrades,
         winRate,
         profitFactor,
         maxDrawdown,
+        maxRunup,
+        initialCapital: capital,
+        grossProfit,
+        grossLoss,
+        equity: currentEquity + openPnl,
+        openPnl,
+        position: position
+          ? {
+              direction: position.direction,
+              qty: position.qty,
+              avgPrice: position.avgPrice,
+              entryBar: position.entryBar,
+              entryTime: position.entryTime,
+              entryId: position.entryId,
+            }
+          : null,
       };
     },
   };

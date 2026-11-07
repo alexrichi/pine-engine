@@ -1,3 +1,5 @@
+import type { StrategyResult } from './runtime/builtins/strategy';
+
 /** A closed or forming bar. Time is a Unix timestamp in milliseconds. */
 export interface PineBar {
   time: number;
@@ -251,6 +253,8 @@ export interface PineScriptMeta {
   overlay: boolean;
   inputs: PineInput[];
   plots: PinePlotMeta[];
+  /** A strategy's declared `initial_capital`. */
+  initialCapital?: number;
   /** Source-level limitations found at compile time. */
   warnings: string[];
 }
@@ -304,6 +308,8 @@ export interface PineRunResult {
   inputs: PineInput[];
   /** Alerts raised on the last (current) bar by `alert()` / `alertcondition()`. */
   alerts: PineAlert[];
+  /** The strategy's broker state and trade ledger; absent for an indicator. */
+  strategy?: StrategyResult;
   /** Source-level limitations found at compile time plus runtime warnings. */
   warnings: string[];
   /**

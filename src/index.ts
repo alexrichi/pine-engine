@@ -30,3 +30,8 @@ export type {
   PineShapePoint,
   PineCandleSeries,
 } from './types';
+export type {
+  ClosedTrade,
+  OpenTrade,
+  StrategyResult,
+} from './runtime/builtins/strategy';

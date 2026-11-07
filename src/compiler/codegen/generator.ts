@@ -409,6 +409,11 @@ private fnParams = new Set<string>();
       } else if (arg.name === 'overlay') {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'boolean') this.metadata.overlay = v;
+      } else if (arg.name === 'initial_capital') {
+        const v = this.getLiteralValue(arg.value);
+        if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+          this.metadata.initialCapital = v;
+        }
       }
     }
   }
@@ -1534,6 +1539,40 @@ private fnParams = new Set<string>();
       return calleeName === 'alert'
         ? `__rt.alert(${args[0] ?? '""'}, ${args[1] ?? 'undefined'}, ${site})`
         : `__rt.alertcondition(${args[0] ?? 'false'}, ${args[1] ?? 'undefined'}, ${args[2] ?? 'undefined'}, ${site})`;
+    }
+
+    // `strategy.closedtrades.profit(n)` and friends: a field call on the
+    // virtual closed-trade ledger, not a member of a number.
+    if (calleeName.startsWith('strategy.closedtrades.')) {
+      const field = calleeName.slice('strategy.closedtrades.'.length);
+      const args = this.genArgs(call.args);
+      return `__rt.strategy.closedTrade(${JSON.stringify(field)}, ${args || '0'})`;
+    }
+
+    // Strategy orders take long Pine signatures; map named arguments to the
+    // runtime's slots instead of passing them positionally.
+    const STRATEGY_CALLS: Record<string, string[]> = {
+      'strategy.entry': ['id', 'direction', 'qty', 'limit', 'stop'],
+      'strategy.order': ['id', 'direction', 'qty', 'limit', 'stop'],
+      'strategy.close': ['id', 'comment', 'qty'],
+      'strategy.exit': ['id', 'from_entry', 'qty', 'qty_percent', 'profit', 'limit', 'loss', 'stop'],
+    };
+    const strategyArgs = STRATEGY_CALLS[calleeName];
+    if (strategyArgs) {
+      const slots = new Array<string>(strategyArgs.length).fill('undefined');
+      let positional = 0;
+      for (const arg of call.args) {
+        const value = this.genExpr(arg.value);
+        if (arg.name !== null && strategyArgs.includes(arg.name)) {
+          slots[strategyArgs.indexOf(arg.name)] = value;
+        } else if (arg.name === null && positional < slots.length) {
+          slots[positional++] = value;
+        }
+      }
+      if (calleeName === 'strategy.close') {
+        return `__rt.strategy.close(${slots[0]}, ${slots[2]})`;
+      }
+      return `__rt.${calleeName}(${slots.join(', ')})`;
     }
 
     // Try to map to runtime
