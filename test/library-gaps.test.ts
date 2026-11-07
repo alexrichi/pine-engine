@@ -165,6 +165,38 @@ plot(close, "close")
     expect(result.drawings.boxes.at(-1)!.borderColor).toBe('');
   });
 
+  it('keeps plain local history separate for each call site', () => {
+    const result = run(`//@version=6
+indicator("plain local history")
+read(v) =>
+    x = v
+    x[1]
+a = read(close)
+b = read(open)
+plot(a, "a")
+plot(b, "b")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.slice(1)).toEqual([100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5]);
+    expect(result.plots[1]!.values.slice(1)).toEqual([100, 101, 102, 103, 104, 105, 106]);
+  });
+
+  it('applies user function parameter defaults when the argument is omitted', () => {
+    const result = run(`//@version=6
+indicator("param defaults")
+add(a, b = 2.0) => a + b
+twice(a, b = 3.0) =>
+    a * b
+plot(add(1.0), "default")
+plot(add(1.0, 5.0), "explicit")
+plot(twice(2.0), "methodDefault")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(3);
+    expect(result.plots[1]!.values.at(-1)).toBe(6);
+    expect(result.plots[2]!.values.at(-1)).toBe(6);
+  });
+
   it('clones a UDT with Type.copy and keeps the copy independent', () => {
     const result = run(`//@version=6
 indicator("udt copy")

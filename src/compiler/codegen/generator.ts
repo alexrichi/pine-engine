@@ -700,6 +700,12 @@ private fnParams = new Set<string>();
     this.fnLocalVars = new Set(savedLocals);
     this.fnParams = new Set(savedParams);
     for (const param of decl.params) this.fnParams.add(param.name);
+    // Pine applies a parameter's default when the caller omits the argument.
+    for (const param of decl.params) {
+      if (!param.defaultValue) continue;
+      const name = safeIdent(param.name);
+      out.push(this.indent() + `if (${name} === undefined) ${name} = __rt.scalar(${this.genExpr(param.defaultValue)});`);
+    }
     if (Array.isArray(decl.body)) {
       // A block-bodied Pine function returns the value of its last statement,
       // including the last expression inside an if/else branch.
@@ -898,6 +904,11 @@ private fnParams = new Set<string>();
       this.fnParams = new Set(savedParams);
       this.fnParams.add(selfName);
       for (const param of decl.params) this.fnParams.add(param.name);
+      for (const param of decl.params) {
+        if (!param.defaultValue) continue;
+        const pname = safeIdent(param.name);
+        out.push(this.indent() + `if (${pname} === undefined) ${pname} = __rt.scalar(${this.genExpr(param.defaultValue)});`);
+      }
       out.push(this.indent() + `var self = ${selfName};`);
       if (Array.isArray(decl.body)) {
         this.genTailBlock(decl.body, out);
@@ -927,6 +938,11 @@ private fnParams = new Set<string>();
     this.fnParams = new Set(savedParams);
     if (/^[A-Za-z_]\w*$/.test(decl.selfName)) this.fnParams.add(decl.selfName);
     for (const param of decl.params) this.fnParams.add(param.name);
+    for (const param of decl.params) {
+      if (!param.defaultValue) continue;
+      const name = safeIdent(param.name);
+      out.push(this.indent() + `if (${name} === undefined) ${name} = __rt.scalar(${this.genExpr(param.defaultValue)});`);
+    }
     if (Array.isArray(decl.body)) {
       this.genTailBlock(decl.body, out);
     } else {
@@ -994,6 +1010,9 @@ private fnParams = new Set<string>();
       // sometimes shadow a function with a variable).
       const declares = op === '=' && (target.kind === 'IdentifierExpression' || target.kind === 'TupleExpression');
       if (declares) {
+        // Function-local declarations need the call-site history key even when
+        // Pine writes the declaration as `x = ...` (an assignment statement).
+        if (this.fnSiteParam && targetName) this.fnLocalVars.add(targetName);
         out.push(this.indent() + `var ${lhsStr} = __rt.scalar(${rhs});`);
       } else if (op === ':=') {
         out.push(this.indent() + `${lhsStr} = __rt.scalar(${rhs});`);
