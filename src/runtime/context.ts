@@ -70,6 +70,9 @@ export interface RuntimeContext {
     fg_color: string;
     border_color: string;
     text_color: string;
+    /** Epoch ms of the left/right visible bar; na when the host has no viewport. */
+    left_visible_bar_time: number;
+    right_visible_bar_time: number;
     point: {
       new: (time: number, index: number, price: number) => unknown;
       now: (price?: number) => unknown;
@@ -239,6 +242,8 @@ export interface ContextOptions {
   /** Lower-timeframe bars keyed `<symbol>@<canonical timeframe>`. */
   lowerBars?: Record<string, readonly import('../data/types').Bar[]>;
   onLowerTimeframe?: (symbol: string, timeframe: string) => void;
+  /** The chart's visible bar window for `chart.*_visible_bar_time`; absent = na. */
+  visibleRange?: { left: number; right: number };
 }
 
 /**
@@ -436,6 +441,8 @@ export function createContext(
       fg_color: '#d1d4dc',
       border_color: '#2a2e39',
       text_color: '#d1d4dc',
+      left_visible_bar_time: options.visibleRange?.left ?? Number.NaN,
+      right_visible_bar_time: options.visibleRange?.right ?? Number.NaN,
       point: {
         new(time: number, index: number, price: number) {
           return { time, index, price };

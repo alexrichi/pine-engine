@@ -61,6 +61,79 @@ plot(flag ? mult : 0, "value")
     expect(result.plots[0]!.values.at(-1)).toBe(3.5);
   });
 
+  it('reads the chart visible window and reports na without one', () => {
+    const source = `//@version=6
+indicator("viewport")
+plot(chart.left_visible_bar_time, "left")
+plot(chart.right_visible_bar_time, "right")
+`;
+    const withRange = runPineScript({
+      source,
+      bars,
+      timeframe: '60',
+      symbol: 'BINANCE:BTCUSDT.P',
+      visibleRange: { left: 111, right: 999 },
+    });
+    expect(withRange.ok).toBe(true);
+    expect(withRange.plots.map((plot) => plot.values.at(-1))).toEqual([111, 999]);
+    const without = runPineScript({ source, bars, timeframe: '60', symbol: 'BINANCE:BTCUSDT.P' });
+    expect(without.ok).toBe(true);
+    expect(without.plots[0]!.values.at(-1)).toBeNaN();
+  });
+
+  it('calls a user-defined method as a plain function', () => {
+    const result = run(`//@version=6
+indicator("method call")
+type Point
+    float x
+method add(Point p, float d) =>
+    Point.new(p.x + d)
+p = Point.new(1)
+q = add(p, 2)
+plot(q.x, "x")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(3);
+  });
+
+  it('reads color channels', () => {
+    const result = run(`//@version=6
+indicator("color channels")
+plot(color.r(#FF8800), "r")
+plot(color.g(#FF8800), "g")
+plot(color.b(#FF8800), "b")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots.map((plot) => plot.values.at(-1))).toEqual([255, 136, 0]);
+  });
+
+  it('computes cmo, percentile nearest rank and percentile linear interpolation', () => {
+    const closes = [10, 20, 30, 40, 50];
+    const trendBars: PineBar[] = closes.map((close, index) => ({
+      time: 1_700_000_000_000 + index * 3_600_000,
+      open: close - 1,
+      high: close + 1,
+      low: close - 2,
+      close,
+      volume: 1,
+    }));
+    const result = runPineScript({
+      source: `//@version=6
+indicator("ta gaps")
+plot(ta.cmo(close, 4), "cmo")
+plot(ta.percentile_nearest_rank(close, 4, 50), "nearest")
+plot(ta.percentile_linear_interpolation(close, 4, 50), "linear")
+`,
+      bars: trendBars,
+      timeframe: '60',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(100);
+    expect(result.plots[1]!.values.at(-1)).toBe(30);
+    expect(result.plots[2]!.values.at(-1)).toBe(35);
+  });
+
   it('infers the type of a generic input from its default value', () => {
     const compiled = compilePine({
       source: `//@version=6

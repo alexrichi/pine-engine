@@ -1720,6 +1720,13 @@ private fnParams = new Set<string>();
         const site = this.callSiteId();
         return `${fnName(name)}(${site}${args ? ', ' + args : ''})`;
       }
+      // Pine lets a `method` be called as a plain function with the receiver
+      // first: `applyBar(gp, ...)` is `gp.applyBar(...)`.
+      if (this.udtMethods.has(name) && call.args.length > 0) {
+        const receiver = this.genExpr(call.args[0]!.value);
+        const rest = this.genArgs(call.args.slice(1));
+        return `__rt.udtCall(${receiver}, ${JSON.stringify(name)}, [${rest}])`;
+      }
       return `__rt.missing(${JSON.stringify(name)})(${args})`;
     }
 

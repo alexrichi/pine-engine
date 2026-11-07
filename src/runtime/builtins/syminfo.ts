@@ -15,6 +15,10 @@ export interface SymInfo {
   description: string;
   /** Price scale (`10^digits`), e.g. 10 for a 0.1 tick. */
   pricescale: number;
+  /** Float shares outstanding; na for instruments that do not report it (crypto). */
+  shares_outstanding_float: number;
+  /** Total shares outstanding; na for instruments that do not report it (crypto). */
+  shares_outstanding_total: number;
   /** Function form: `syminfo.ticker(symbol)`. */
   tickerOf(symbol: unknown): string;
   /** Function form: `syminfo.prefix(symbol)`. */
@@ -42,6 +46,8 @@ export function createSyminfo(overrides: Partial<SymInfo> = {}): SymInfo {
     currency: overrides.currency ?? 'USD',
     description: overrides.description ?? ticker,
     pricescale: overrides.pricescale ?? 100,
+    shares_outstanding_float: overrides.shares_outstanding_float ?? Number.NaN,
+    shares_outstanding_total: overrides.shares_outstanding_total ?? Number.NaN,
     ...overrides,
     tickerOf: (symbol: unknown) => splitSymbol(symbol)[1],
     prefixOf: (symbol: unknown) => splitSymbol(symbol)[0],

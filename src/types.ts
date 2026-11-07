@@ -282,6 +282,8 @@ export interface PineRunBars {
   lowerBars?: Record<string, readonly PineBar[]>;
   /** Called when a script asks for a lower timeframe that the host can supply. */
   onLowerTimeframe?: (symbol: string, timeframe: string) => void;
+  /** The chart's visible bar window for `chart.*_visible_bar_time`; absent = na. */
+  visibleRange?: { left: number; right: number };
 }
 
 export interface PineRunResult {

@@ -39,6 +39,12 @@ export function colorTransparency(value: string): number {
   return ((255 - rgba.a) / 255) * 100;
 }
 
+/** Pine `color.r` / `color.g` / `color.b`: one 0-255 channel, na for an invalid color. */
+export function colorChannel(value: string, channel: 'r' | 'g' | 'b'): number {
+  const rgba = parseRgba(value);
+  return rgba ? rgba[channel] : Number.NaN;
+}
+
 interface Rgba {
   r: number;
   g: number;
@@ -98,6 +104,9 @@ export const color = new Proxy(
     new: colorNew,
     colorNew,
     rgb,
+    r: (value: string) => colorChannel(value, 'r'),
+    g: (value: string) => colorChannel(value, 'g'),
+    b: (value: string) => colorChannel(value, 'b'),
     t: colorTransparency,
     transparency: colorTransparency,
     fromGradient: colorFromGradient,

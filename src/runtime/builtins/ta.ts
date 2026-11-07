@@ -138,6 +138,10 @@ export interface TaModule {
   change(source: Series<number>, length?: number): number;
   highest(source: Series<number>, length: number): number;
   lowest(source: Series<number>, length: number): number;
+  cmo(source: Series<number>, length: number): number;
+  percentileLinearInterpolation(source: Series<number>, length: number, percentage: number): number;
+  percentileNearestRank(source: Series<number>, length: number, percentage: number): number;
+  windowValues(source: Series<number>, length: number): number[] | null;
 
   // New TA functions
   stoch(source: Series<number>, high: Series<number>, low: Series<number>, length: number): number;
@@ -735,6 +739,53 @@ export function createTaModule(
         if ((v as number) < min) min = v as number;
       }
       return seen > 0 ? min : (NA as unknown as number);
+    },
+
+    /** Chande Momentum Oscillator: 100 * (gains - losses) / (gains + losses). */
+    cmo(source: Series<number>, length: number): number {
+      if (length <= 0 || source.length < length + 1) return NA as unknown as number;
+      let gains = 0;
+      let losses = 0;
+      for (let i = 0; i < length; i++) {
+        const current = source.get(i);
+        const previous = source.get(i + 1);
+        if (isNa(current) || isNa(previous)) continue;
+        const momentum = (current as number) - (previous as number);
+        if (momentum >= 0) gains += momentum;
+        else losses -= momentum;
+      }
+      const total = gains + losses;
+      return total === 0 ? 0 : (100 * (gains - losses)) / total;
+    },
+
+    percentileLinearInterpolation(source: Series<number>, length: number, percentage: number): number {
+      const values = this.windowValues(source, length);
+      if (!values) return NA as unknown as number;
+      const n = values.length;
+      const index = Math.min(Math.max((percentage / 100) * n - 0.5, 0), n - 1);
+      const low = Math.floor(index);
+      if (low >= n - 1) return values[n - 1]!;
+      return values[low]! + (index - low) * (values[low + 1]! - values[low]!);
+    },
+
+    percentileNearestRank(source: Series<number>, length: number, percentage: number): number {
+      const values = this.windowValues(source, length);
+      if (!values) return NA as unknown as number;
+      const n = values.length;
+      const index = Math.min(Math.max(Math.ceil((percentage / 100) * n) - 1, 0), n - 1);
+      return values[index]!;
+    },
+
+    /** The last `length` non-na values, ascending. */
+    windowValues(source: Series<number>, length: number): number[] | null {
+      if (length <= 0 || source.length < length) return null;
+      const values: number[] = [];
+      for (let i = 0; i < source.length && values.length < length; i++) {
+        const v = source.get(i);
+        if (!isNa(v)) values.push(v as number);
+      }
+      if (values.length === 0) return null;
+      return values.sort((a, b) => a - b);
     },
 
     // ========================================================================
@@ -2015,6 +2066,7 @@ export function createTaModule(
     sma: [0], ema: [0], rsi: [0], macd: [0], bb: [0], wma: [0], vwma: [0],
     rma: [0], cum: [0], swma: [0], alma: [0], stdev: [0], variance: [0],
     change: [0], highest: [0], lowest: [0], highestbars: [0], lowestbars: [0],
+    cmo: [0], percentileLinearInterpolation: [0], percentileNearestRank: [0],
     mom: [0], cci: [0], dev: [0], percentrank: [0], falling: [0], rising: [0],
     hma: [0], kc: [0], linreg: [0], median: [0], mfi: [0],
     roc: [0], vwap: [0], bbw: [0], kcw: [0], cog: [0], cross: [0, 1],
