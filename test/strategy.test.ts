@@ -47,4 +47,57 @@ describe('strategy runtime', () => {
     expect(strategy.position).toBeNull();
     expect(result.plots[0]?.values[2]).toBe(11);
   });
+
+  it('fills a limit already through the open at the open, not at its price', () => {
+    const program = compilePine({
+      source: `//@version=6
+strategy("Marketable limit", initial_capital = 5000)
+if bar_index == 1
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", from_entry = "Long", limit = close - 10)
+plot(strategy.closedtrades.profit(0))
+`,
+    });
+    expect(program.ok).toBe(true);
+    if (!program.ok) return;
+
+    const result = program.run({ bars, timeframe: '60', symbol: 'BINANCE:BTCUSDT' });
+    expect(result.ok).toBe(true);
+    const trade = result.strategy?.trades[0];
+    // The sell limit sits below the market, so it is marketable on entry and
+    // fills at the entry bar's open (100), not at 91.
+    expect(trade?.entryPrice).toBe(100);
+    expect(trade?.exitPrice).toBe(100);
+    expect(trade?.profit).toBe(0);
+  });
+
+  it('fills a gap through a stop at the open', () => {
+    const gapBars: PineBar[] = [
+      { time: 1_000, open: 100, high: 101, low: 99, close: 100, volume: 1 },
+      { time: 2_000, open: 100, high: 102, low: 99, close: 101, volume: 1 },
+      { time: 3_000, open: 100, high: 102, low: 99, close: 101, volume: 1 },
+      { time: 4_000, open: 85, high: 90, low: 84, close: 88, volume: 1 },
+      { time: 5_000, open: 88, high: 90, low: 86, close: 89, volume: 1 },
+    ];
+    const program = compilePine({
+      source: `//@version=6
+strategy("Gap stop", initial_capital = 5000)
+if bar_index == 1
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", from_entry = "Long", stop = close - 10)
+plot(strategy.closedtrades.profit(0))
+`,
+    });
+    expect(program.ok).toBe(true);
+    if (!program.ok) return;
+
+    const result = program.run({ bars: gapBars, timeframe: '60', symbol: 'BINANCE:BTCUSDT' });
+    expect(result.ok).toBe(true);
+    const trade = result.strategy?.trades[0];
+    // Entry at bar 2 open (100); the 91 sell-stop gaps through on bar 3 and
+    // fills at that bar's open (85), not at the stop price.
+    expect(trade?.entryPrice).toBe(100);
+    expect(trade?.exitPrice).toBe(85);
+    expect(trade?.profit).toBe(-15);
+  });
 });

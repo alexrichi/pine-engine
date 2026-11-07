@@ -233,23 +233,25 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
         fillOrder(order, barOpen);
         filled = true;
       } else if (order.type === 'limit') {
-        // Limit buy fills if low <= limitPrice; limit sell fills if high >= limitPrice
+        // A limit already through the open is marketable: it fills at the
+        // open, never at a price the bar never traded. Otherwise it fills at
+        // the limit once the bar reaches it.
         const limitPrice = order.limitPrice!;
         if (direction === 'long' && barLow <= limitPrice) {
-          fillOrder(order, limitPrice);
+          fillOrder(order, Math.min(limitPrice, barOpen));
           filled = true;
         } else if (direction === 'short' && barHigh >= limitPrice) {
-          fillOrder(order, limitPrice);
+          fillOrder(order, Math.max(limitPrice, barOpen));
           filled = true;
         }
       } else if (order.type === 'stop') {
-        // Stop buy fills if high >= stopPrice; stop sell fills if low <= stopPrice
+        // Stops gap through: fill at the open when it is already past the stop.
         const stopPrice = order.stopPrice!;
         if (direction === 'long' && barHigh >= stopPrice) {
-          fillOrder(order, stopPrice);
+          fillOrder(order, Math.max(stopPrice, barOpen));
           filled = true;
         } else if (direction === 'short' && barLow <= stopPrice) {
-          fillOrder(order, stopPrice);
+          fillOrder(order, Math.min(stopPrice, barOpen));
           filled = true;
         }
       }
