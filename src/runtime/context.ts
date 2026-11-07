@@ -9,7 +9,8 @@ import { BuiltinVariables } from './builtins/variables';
 import { str } from './builtins/str';
 import { arrayModule, mapModule, matrixModule } from './builtins/collections';
 import { SymInfo, createSyminfo } from './builtins/syminfo';
-import { TimeframeInfo, createTimeframe, inSeconds } from './builtins/timeframe';
+import { TimeframeInfo, createTimeframe, inSeconds, startOfTimeframe } from './builtins/timeframe';
+import { canonicalTimeframe } from './builtins/request';
 import { StrategyEngine, createStrategyEngine } from './builtins/strategy';
 import { createLineModule } from './builtins/line';
 import { createLabelModule } from './builtins/label';
@@ -797,14 +798,22 @@ export function createContext(
     },
 
     timeCall(timeframe?: string, session?: string, timezone?: string): number {
-      if (!session) return builtins.time.get(0);
-      const result = timeFns.timeInSession(timeframe, session, timezone);
-      return typeof result === 'number' ? result : NA;
+      if (session) {
+        const result = timeFns.timeInSession(timeframe, session, timezone);
+        return typeof result === 'number' ? result : NA;
+      }
+      const current = builtins.time.get(0);
+      if (!timeframe) return current;
+      const requested = canonicalTimeframe(timeframe);
+      if (requested === canonicalTimeframe(timeframePeriod)) return current;
+      return startOfTimeframe(current, requested);
     },
 
     timeCloseCall(timeframe?: string, session?: string, timezone?: string): number {
       const open = this.timeCall(timeframe, session, timezone);
-      return isNa(open) ? NA : open + barMs;
+      if (isNa(open)) return NA;
+      const requested = canonicalTimeframe(timeframe || timeframePeriod);
+      return open + inSeconds(requested) * 1000 - 1;
     },
 
     toInt(value: unknown): number {

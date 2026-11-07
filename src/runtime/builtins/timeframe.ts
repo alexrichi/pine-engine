@@ -45,6 +45,31 @@ export function inSeconds(tf: string): number {
 }
 
 /**
+ * Start time (epoch ms) of the timeframe bar that contains `timeMs`.
+ * Intraday periods align to the epoch; D/W/M align to UTC day/Monday/month.
+ */
+export function startOfTimeframe(timeMs: number, timeframe: string): number {
+  const tf = canonicalTimeframe(timeframe);
+  if (tf === 'D') {
+    const date = new Date(timeMs);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  }
+  if (tf === 'W') {
+    const date = new Date(timeMs);
+    const monday = new Date(timeMs);
+    monday.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+    return Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate());
+  }
+  if (tf === 'M') {
+    const date = new Date(timeMs);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  }
+  const minutes = parseInt(tf, 10);
+  const duration = (Number.isFinite(minutes) && minutes > 0 ? minutes : 1) * 60_000;
+  return Math.floor(timeMs / duration) * duration;
+}
+
+/**
  * Create a timeframe info object from a period string.
  *
  * Period string conventions (Pine Script):

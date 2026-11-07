@@ -61,6 +61,35 @@ plot(flag ? mult : 0, "value")
     expect(result.plots[0]!.values.at(-1)).toBe(3.5);
   });
 
+  it('returns the requested timeframe bar start from time and time_close', () => {
+    const start = Date.UTC(2024, 0, 1);
+    const bars: PineBar[] = Array.from({ length: 8 }, (_, index) => ({
+      time: start + index * 3_600_000,
+      open: 1,
+      high: 2,
+      low: 0.5,
+      close: 1.5,
+      volume: 1,
+    }));
+    const result = runPineScript({
+      source: `//@version=6
+indicator("timeframe time")
+plot(time("D"), "d")
+plot(time("240"), "h4")
+plot(time_close("D"), "dc")
+`,
+      bars,
+      timeframe: '60',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots.map((plot) => plot.values.at(-1))).toEqual([
+      start,
+      start + 4 * 3_600_000,
+      start + 24 * 3_600_000 - 1,
+    ]);
+  });
+
   it('evaluates a non-source security expression on a higher timeframe', () => {
     const bars: PineBar[] = Array.from({ length: 8 }, (_, index) => {
       const open = 10 + index;
