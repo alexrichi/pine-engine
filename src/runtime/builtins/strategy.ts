@@ -361,7 +361,7 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       // Create stop exit if specified
       if (exitStop !== undefined) {
         queuedOrders.push({
-          id: id + '_stop',
+          id,
           direction,
           qty: resolvedQty,
           type: 'stop',
