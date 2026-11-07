@@ -202,6 +202,8 @@ private fnSiteParam: string | null = null;
 private fnLocalVars = new Set<string>();
 /** Plain `x = ...` / tuple locals inside a function: JS bindings, not state slots. */
 private fnPlainLocals = new Set<string>();
+/** Unique temp names for generated `for` loop bounds. */
+private forDepth = 0;
 /** Parameter names of the function currently being generated. */
 private fnParams = new Set<string>();
 
@@ -253,6 +255,7 @@ private fnParams = new Set<string>();
     // Reset Phase 3 state
     this.historyVars = new Set();
     this.varTypes = new Map();
+    this.forDepth = 0;
 
     // Reset UDT state
     this.udtTypes = new Set();
@@ -1070,9 +1073,22 @@ private fnParams = new Set<string>();
   private genForStatement(stmt: ForStatement, out: string[]): void {
     const start = this.genExpr(stmt.start);
     const end = this.genExpr(stmt.end);
-    const step = stmt.step ? this.genExpr(stmt.step) : '1';
-    const v = stmt.variable;
-    out.push(this.indent() + `for (var ${safeIdent(v)} = ${start}; ${safeIdent(v)} <= ${end}; ${safeIdent(v)} += ${step}) {`);
+    const v = safeIdent(stmt.variable);
+    const id = this.forDepth++;
+    const from = `__forFrom${id}`;
+    const to = `__forTo${id}`;
+    out.push(this.indent() + `var ${from} = __rt.scalar(${start});`);
+    out.push(this.indent() + `var ${to} = __rt.scalar(${end});`);
+    if (stmt.step) {
+      // An explicit step keeps its own sign, as Pine does.
+      const step = `__forStep${id}`;
+      out.push(this.indent() + `var ${step} = __rt.scalar(${this.genExpr(stmt.step)});`);
+      out.push(this.indent() + `for (var ${v} = ${from}; ${step} >= 0 ? ${v} <= ${to} : ${v} >= ${to}; ${v} += ${step}) {`);
+    } else {
+      // Pine counts down when `from` is greater than `to`, even without `by -1`.
+      const dir = `__forDir${id}`;
+      out.push(this.indent() + `for (var ${v} = ${from}, ${dir} = ${v} <= ${to} ? 1 : -1; ${dir} > 0 ? ${v} <= ${to} : ${v} >= ${to}; ${v} += ${dir}) {`);
+    }
     this.indentLevel++;
     this.generateBody(stmt.body, out);
     this.indentLevel--;

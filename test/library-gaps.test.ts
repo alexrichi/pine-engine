@@ -181,6 +181,19 @@ plot(b, "b")
     expect(result.plots[1]!.values.slice(1)).toEqual([100, 101, 102, 103, 104, 105, 106]);
   });
 
+  it('runs a descending for loop without an explicit step', () => {
+    const result = run(`//@version=6
+indicator("descending for")
+var int hits = 0
+if bar_index == 0
+    for i = 3 to 0
+        hits := hits + 1
+plot(hits, "hits")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values[0]).toBe(4);
+  });
+
   it('keeps a tuple local distinct from a same-named var in another function', () => {
     const result = run(`//@version=6
 indicator("tuple shadow")

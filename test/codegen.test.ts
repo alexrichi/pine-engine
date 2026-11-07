@@ -295,7 +295,13 @@ describe('Control flow generation', () => {
   it('generates for loop', () => {
     const src = `//@version=6\nindicator("Test")\nfor i = 0 to 9\n    x = i\n`;
     const code = compileOk(src);
-    expect(code).toContain('for (var i = 0; i <= 9; i += 1)');
+    expect(code).toContain('for (var i = __forFrom0, __forDir0 = i <= __forTo0 ? 1 : -1');
+  });
+
+  it('counts a descending for loop down to the end value', () => {
+    const src = `//@version=6\nindicator("Test")\nfor i = 9 to 0\n    x = i\n`;
+    const code = compileOk(src);
+    expect(code).toContain('__forDir0 > 0 ? i <= __forTo0 : i >= __forTo0');
   });
 
   it('generates while loop', () => {
