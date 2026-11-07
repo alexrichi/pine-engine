@@ -587,6 +587,17 @@ private fnParams = new Set<string>();
     return `__rt.state.${name}`;
   }
 
+  /**
+   * History key for a user variable. Pine inlines a function per call site, so
+   * a local `var` and a parameter keep separate history for every caller.
+   */
+  private userSeriesKey(name: string): string {
+    if (this.fnSiteParam && (this.fnLocalVars.has(name) || this.fnParams.has(name))) {
+      return `${JSON.stringify(name + ':')} + ${this.fnSiteParam}`;
+    }
+    return JSON.stringify(name);
+  }
+
   private persistentRef(name: string): string {
     if (this.fnSiteParam && this.fnLocalVars.has(name)) {
       return `__rt.persistentState[${JSON.stringify(name + ':')} + ${this.fnSiteParam}]`;
@@ -605,10 +616,13 @@ private fnParams = new Set<string>();
           `var [${names}] = __rt.tuple(${valStr}, ${decl.tupleNames.length});`,
       );
       // Track history and types for each tuple name
+      if (this.fnSiteParam) {
+        for (const tname of decl.tupleNames) this.fnLocalVars.add(tname);
+      }
       for (let index = 0; index < decl.tupleNames.length; index += 1) {
         const tname = decl.tupleNames[index]!;
         if (this.historyVars.has(tname)) {
-          out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(tname)}, ${tupleNames[index]});`);
+          out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(tname)}, ${tupleNames[index]});`);
         }
       }
       return;
@@ -642,7 +656,7 @@ private fnParams = new Set<string>();
       }
       // Emit userSeriesSet for history-tracked var/varip
       if (this.historyVars.has(name)) {
-        out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${store});`);
+        out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(name)}, ${store});`);
       }
     } else if (decl.modifier === 'varip') {
       // varip declarations: first assignment in persistentState
@@ -657,16 +671,17 @@ private fnParams = new Set<string>();
         out.push(this.indent() + `if (!(${JSON.stringify(name)} in __rt.persistentState)) ${store} = __rt.scalar(${valStr});`);
       }
       if (this.historyVars.has(name)) {
-        out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${store});`);
+        out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(name)}, ${store});`);
       }
     } else {
       // Plain declaration. Pine variables hold the current bar's value, not the
       // Series object, so unwrap before storing.
+      if (this.fnSiteParam) this.fnLocalVars.add(name);
       const valStr = this.genExpr(decl.value);
       out.push(this.indent() + `var ${safeIdent(name)} = __rt.scalar(${valStr});`);
       // Emit userSeriesSet for history-tracked variables
       if (this.historyVars.has(name)) {
-        out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(name)}, ${safeIdent(name)});`);
+        out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(name)}, ${safeIdent(name)});`);
       }
     }
   }
@@ -844,6 +859,9 @@ private fnParams = new Set<string>();
 
     // Static .new() factory
     out.push(this.indent() + `${udtName(name)}.new = function(fields) { return new ${udtName(name)}(fields || {}); };`);
+    // Pine's `Type.copy(obj)` clones every field (a shallow copy). Passing the
+    // source as the constructor's fields keeps nested values by reference.
+    out.push(this.indent() + `${udtName(name)}.copy = function(value) { return new ${udtName(name)}(value || {}); };`);
   }
 
   private defaultForType(baseType: string): string {
@@ -964,7 +982,7 @@ private fnParams = new Set<string>();
       }
       // Update user series for history tracking
       if (targetName && this.historyVars.has(targetName)) {
-        out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(targetName)}, ${store});`);
+        out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(targetName)}, ${store});`);
       }
     } else {
       const lhsStr = target.kind === 'MemberExpression' ? this.genLValue(target) : this.genExpr(target);
@@ -984,7 +1002,7 @@ private fnParams = new Set<string>();
       }
       // Update user series for history tracking
       if (targetName && this.historyVars.has(targetName)) {
-        out.push(this.indent() + `__rt.userSeriesSet(${JSON.stringify(targetName)}, ${lhsStr});`);
+        out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(targetName)}, ${lhsStr});`);
       }
     }
   }
@@ -1328,6 +1346,11 @@ private fnParams = new Set<string>();
       return args ? `__rt.isNa(${args})` : '__rt.na';
     }
 
+    // History reservation is a host concern: the engine keeps every series.
+    if (calleeName === 'max_bars_back') {
+      return '__rt.na';
+    }
+
     // UDT constructor call: TypeName.new(...)
     if (call.callee.kind === 'MemberExpression') {
       const mem = call.callee as MemberExpression;
@@ -1335,6 +1358,13 @@ private fnParams = new Set<string>();
         const typeName = (mem.object as IdentifierExpression).name;
         if (this.udtTypes.has(typeName)) {
           return this.genUdtConstructor(typeName, call);
+        }
+      }
+      // UDT static copy: TypeName.copy(value)
+      if (mem.property === 'copy' && mem.object.kind === 'IdentifierExpression') {
+        const typeName = (mem.object as IdentifierExpression).name;
+        if (this.udtTypes.has(typeName)) {
+          return `${udtName(typeName)}.copy(${this.genArgs(call.args)})`;
         }
       }
     }
@@ -2236,7 +2266,8 @@ private fnParams = new Set<string>();
     // `color.new(#3179f5, 80)` keeps its transparency as an alpha suffix.
     if (expr.kind === 'CallExpression') {
       const call = expr as CallExpression;
-      if (this.calleeToString(call.callee) === 'color.new') {
+      const callee = this.calleeToString(call.callee);
+      if (callee === 'color.new') {
         const base = this.resolveColor(call.args[0]?.value);
         const transparency = this.getLiteralValue(call.args[1]?.value);
         if (base && typeof transparency === 'number') {
@@ -2244,6 +2275,17 @@ private fnParams = new Set<string>();
             .toString(16)
             .padStart(2, '0');
           return `${base.slice(0, 7)}${alpha}`;
+        }
+      }
+      // `color.rgb(r, g, b, transparency)` as used by input.color defaults.
+      if (callee === 'color.rgb') {
+        const channels = call.args.map((arg) => this.getLiteralValue(arg.value));
+        if (channels.slice(0, 3).every((value) => typeof value === 'number')) {
+          const [r, g, b] = channels as number[];
+          const transparency = typeof channels[3] === 'number' ? channels[3]! : 0;
+          const alpha = Math.round((1 - Math.max(0, Math.min(100, transparency)) / 100) * 255);
+          const hex = (value: number) => Math.round(value).toString(16).padStart(2, '0');
+          return `#${hex(r!)}${hex(g!)}${hex(b!)}${hex(alpha)}`;
         }
       }
     }
@@ -2409,7 +2451,7 @@ private fnParams = new Set<string>();
       }
       // User variable history: myVar[1] → __rt.userSeriesGet("myVar", 1)
       if (this.historyVars.has(name)) {
-        return `__rt.userSeriesGet(${JSON.stringify(name)}, ${idxStr})`;
+        return `__rt.userSeriesGet(${this.userSeriesKey(name)}, ${idxStr})`;
       }
     }
 

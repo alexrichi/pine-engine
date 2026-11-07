@@ -165,6 +165,62 @@ plot(close, "close")
     expect(result.drawings.boxes.at(-1)!.borderColor).toBe('');
   });
 
+  it('clones a UDT with Type.copy and keeps the copy independent', () => {
+    const result = run(`//@version=6
+indicator("udt copy")
+type P
+    float a = 1.0
+    int b = 2
+p = P.new(a = 5.0, b = 6)
+q = P.copy(p)
+q.a := 9.0
+plot(p.a, "p")
+plot(q.a, "q")
+plot(q.b, "b")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(5);
+    expect(result.plots[1]!.values.at(-1)).toBe(9);
+    expect(result.plots[2]!.values.at(-1)).toBe(6);
+  });
+
+  it('reads color.rgb input defaults instead of the fallback color', () => {
+    const result = run(`//@version=6
+indicator("rgb default")
+c = input.color(color.rgb(0, 126, 0, 50), "")
+plot(color.t(c), "transparency")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBeCloseTo(49.8, 1);
+  });
+
+  it('keeps function-local history separate for each call site', () => {
+    const result = run(`//@version=6
+indicator("local history")
+f(c) =>
+    var int state = 0
+    state := c ? state + 1 : nz(state[1])
+    state
+a = f(bar_index == 1)
+b = f(bar_index == 2)
+plot(a, "a")
+plot(b, "b")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values).toEqual([0, 1, 1, 1, 1, 1, 1, 1]);
+    expect(result.plots[1]!.values).toEqual([0, 0, 1, 1, 1, 1, 1, 1]);
+  });
+
+  it('accepts max_bars_back without reporting a missing builtin', () => {
+    const result = run(`//@version=6
+indicator("history reservation")
+max_bars_back(close, 5000)
+plot(close, "close")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.missingStd).toEqual([]);
+  });
+
   it('snapshots builtin series into UDT constructor args and fields', () => {
     const result = run(`//@version=6
 indicator("udt snapshot")

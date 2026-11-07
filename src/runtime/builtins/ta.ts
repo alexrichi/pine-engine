@@ -1998,6 +1998,15 @@ export function createTaModule(
       ? (args.shift() as string)
       : `default:${name}`;
 
+    // `ta.highest(length)` / `ta.lowest(length)` use the bar's high / low.
+    if (args.length === 1) {
+      if (name === 'highest' || name === 'highestbars') {
+        args.unshift(getHigh?.() ?? (NA as unknown as Series<number>));
+      } else if (name === 'lowest' || name === 'lowestbars') {
+        args.unshift(getLow?.() ?? (NA as unknown as Series<number>));
+      }
+    }
+
     const slots = SOURCE_SLOTS[name];
     if (slots) {
       const indices = slots === 'pivot' ? (args.length >= 3 ? [0] : []) : slots;

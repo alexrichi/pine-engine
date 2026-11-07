@@ -19,15 +19,24 @@ export const colorConstants: Record<string, string> = {
 };
 
 export function colorNew(baseColor: string, transparency: number): string {
-  const alpha = Math.max(0, Math.min(100, transparency));
+  const rgba = parseRgba(baseColor);
+  if (!rgba) return baseColor;
+  const alpha = Math.max(0, Math.min(100, Number.isFinite(transparency) ? transparency : 0));
   const alphaHex = Math.round((1 - alpha / 100) * 255).toString(16).padStart(2, '0');
-  const hex = colorConstants[baseColor] ?? baseColor;
-  return hex + alphaHex;
+  const hex = (channel: number) => channel.toString(16).padStart(2, '0');
+  return `#${hex(rgba.r)}${hex(rgba.g)}${hex(rgba.b)}${alphaHex}`;
 }
 
 export function rgb(r: number, g: number, b: number, transparency: number = 0): string {
   const alpha = Math.max(0, Math.min(1, 1 - transparency / 100));
   return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${alpha})`;
+}
+
+/** Pine `color.t(color)`: transparency in percent (0 opaque, 100 invisible). */
+export function colorTransparency(value: string): number {
+  const rgba = parseRgba(value);
+  if (!rgba) return 0;
+  return ((255 - rgba.a) / 255) * 100;
 }
 
 interface Rgba {
@@ -89,6 +98,8 @@ export const color = new Proxy(
     new: colorNew,
     colorNew,
     rgb,
+    t: colorTransparency,
+    transparency: colorTransparency,
     fromGradient: colorFromGradient,
     from_gradient: colorFromGradient,
   } as Record<string, unknown>,
