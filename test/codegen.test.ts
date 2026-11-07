@@ -473,16 +473,16 @@ describe('Binary and logical operators', () => {
     expect(code).toContain('||');
   });
 
-  it('converts == to ===', () => {
+  it('routes equality through the na-aware helpers', () => {
     const src = `//@version=6\nindicator("Test")\nx = close == open\n`;
     const code = compileOk(src);
-    expect(code).toContain('===');
+    expect(code).toContain('__rt.eq(');
   });
 
-  it('converts != to !==', () => {
+  it('routes inequality through the na-aware helpers', () => {
     const src = `//@version=6\nindicator("Test")\nx = close != open\n`;
     const code = compileOk(src);
-    expect(code).toContain('!==');
+    expect(code).toContain('__rt.neq(');
   });
 });
 

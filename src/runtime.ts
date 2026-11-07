@@ -213,12 +213,20 @@ function lineOf(raw: Record<string, unknown>): PineLine {
     y2: Number(raw.y2),
     xloc: xlocOf(raw.xloc),
     extend: extendOf(raw.extend),
-    color: String(raw.color ?? '#2962FF'),
+    color: raw.color === undefined || raw.color === null ? '#2962FF' : colorOf(raw.color),
     style: lineStyleOf(style),
     width: Number(raw.width ?? 1),
     arrowLeft: style === 'arrow_left' || style === 'arrow_both',
     arrowRight: style === 'arrow_right' || style === 'arrow_both',
   };
+}
+
+/**
+ * A drawing color as text. `na` arrives as a number; passing it through would
+ * turn into the string "NaN" and the chart would fall back to a default color.
+ */
+function colorOf(value: unknown): string {
+  return typeof value === 'string' ? value : '';
 }
 
 function polylinePointOf(raw: unknown): PinePolylinePoint | null {
@@ -255,12 +263,12 @@ function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDraw
     bottom: Number(raw.bottom),
     xloc: xlocOf(raw.xloc),
     extend: extendOf(raw.extend),
-    backgroundColor: String(raw.bgcolor ?? ''),
-    borderColor: String(raw.border_color ?? ''),
+    backgroundColor: colorOf(raw.bgcolor),
+    borderColor: colorOf(raw.border_color),
     borderWidth: Number(raw.border_width ?? 1),
     borderStyle: lineStyleOf(raw.border_style),
     text: String(raw.text ?? ''),
-    textColor: String(raw.text_color ?? ''),
+    textColor: colorOf(raw.text_color),
     textSize: String(raw.text_size ?? 'normal'),
     hAlign: raw.text_halign === 'left' || raw.text_halign === 'right' ? raw.text_halign : 'center',
     vAlign: raw.text_valign === 'top' || raw.text_valign === 'bottom' ? raw.text_valign : 'center',
@@ -275,8 +283,8 @@ function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDraw
       raw.yloc === 'bottom' ? raw.yloc : 'price',
     text: String(raw.text ?? ''),
     tooltip: String(raw.tooltip ?? ''),
-    color: String(raw.color ?? ''),
-    textColor: String(raw.textcolor ?? ''),
+    color: colorOf(raw.color),
+    textColor: colorOf(raw.textcolor),
     style: String(raw.style ?? 'label_center'),
     size: String(raw.size ?? 'normal'),
     textAlign: raw.textalign === 'left' || raw.textalign === 'right' ? raw.textalign : 'center',
@@ -309,7 +317,7 @@ function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDraw
       id: Number(raw.id),
       line1,
       line2,
-      color: String(raw.color ?? ''),
+      color: colorOf(raw.color),
     });
   }
 
@@ -325,8 +333,8 @@ function drawingsOf(result: ExecutionResult, bars: readonly PineBar[]): PineDraw
       points,
       curved: raw.curved === true,
       closed: raw.closed === true,
-      lineColor: String(raw.line_color ?? ''),
-      fillColor: String(raw.fill_color ?? ''),
+      lineColor: colorOf(raw.line_color),
+      fillColor: colorOf(raw.fill_color),
       lineWidth: Number(raw.line_width ?? 1),
       lineStyle: lineStyleOf(raw.line_style),
     });
@@ -375,8 +383,8 @@ function tablesOf(result: ExecutionResult): PineTable[] {
         const formatting = String(cell.text_formatting ?? '');
         outputRow.push({
           text: String(cell.text ?? ''),
-          textColor: String(cell.text_color ?? ''),
-          backgroundColor: String(cell.bgcolor ?? ''),
+          textColor: colorOf(cell.text_color),
+          backgroundColor: colorOf(cell.bgcolor),
           textSize: (cell.text_size as string | number | undefined) ?? 'auto',
           hAlign: cell.text_halign === 'left' || cell.text_halign === 'right'
             ? cell.text_halign
@@ -400,10 +408,10 @@ function tablesOf(result: ExecutionResult): PineTable[] {
       position: String(raw.position ?? 'top_right'),
       columns,
       rows,
-      backgroundColor: String(raw.bgcolor ?? ''),
-      frameColor: String(raw.frame_color ?? ''),
+      backgroundColor: colorOf(raw.bgcolor),
+      frameColor: colorOf(raw.frame_color),
       frameWidth: Number(raw.frame_width ?? 0),
-      borderColor: String(raw.border_color ?? ''),
+      borderColor: colorOf(raw.border_color),
       borderWidth: Number(raw.border_width ?? 0),
       cells,
       merges,
@@ -482,7 +490,7 @@ function priceLinesOf(result: ExecutionResult): PinePriceLine[] {
       id: index,
       price,
       title: String(line.title || `hline_${index}`),
-      color: String(line.color || '#787B86'),
+      color: colorOf(line.color) || '#787B86',
       width: Number.isFinite(Number(line.linewidth)) ? Number(line.linewidth) : 1,
       style: lineStyleOf(line.linestyle),
     });

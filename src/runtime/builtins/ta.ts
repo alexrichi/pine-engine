@@ -382,6 +382,20 @@ export function createTaModule(
     return value;
   }
 
+  /**
+   * The previous pair for a cross: the last bar where both sides were non-na,
+   * so a call skipped by lazy `and` / `or` still sees the pair it last saw.
+   */
+  function previousPair(a: Series<number>, b: Series<number>): [number, number] {
+    const bars = Math.max(a.length, b.length);
+    for (let back = 1; back < bars; back++) {
+      const x = a.get(back);
+      const y = b.get(back);
+      if (!isNa(x) && !isNa(y)) return [x as number, y as number];
+    }
+    return [NA as unknown as number, NA as unknown as number];
+  }
+
   const ta: TaModule = {
 
     sma(source: Series<number>, length: number, _id?: string): number {
@@ -586,6 +600,16 @@ export function createTaModule(
       const isSeries = (v: any): v is Series<number> =>
         v !== null && typeof v === 'object' && typeof v.get === 'function';
 
+      if (isSeries(a) && isSeries(b)) {
+        const a0 = a.get(0);
+        const b0 = b.get(0);
+        if (isNa(a0) || isNa(b0)) return false;
+        let [a1, b1] = [a.get(1), b.get(1)];
+        if (isNa(a1) || isNa(b1)) [a1, b1] = previousPair(a, b);
+        if (isNa(a1) || isNa(b1)) return false;
+        return (a0 as number) > (b0 as number) && (a1 as number) <= (b1 as number);
+      }
+
       let a0: number | typeof NA, a1: number | typeof NA;
       if (isSeries(a)) {
         a0 = a.get(0); a1 = a.get(1);
@@ -613,6 +637,16 @@ export function createTaModule(
     crossunder(a: Series<number> | number, b: Series<number> | number): boolean {
       const isSeries = (v: any): v is Series<number> =>
         v !== null && typeof v === 'object' && typeof v.get === 'function';
+
+      if (isSeries(a) && isSeries(b)) {
+        const a0 = a.get(0);
+        const b0 = b.get(0);
+        if (isNa(a0) || isNa(b0)) return false;
+        let [a1, b1] = [a.get(1), b.get(1)];
+        if (isNa(a1) || isNa(b1)) [a1, b1] = previousPair(a, b);
+        if (isNa(a1) || isNa(b1)) return false;
+        return (a0 as number) < (b0 as number) && (a1 as number) >= (b1 as number);
+      }
 
       let a0: number | typeof NA, a1: number | typeof NA;
       if (isSeries(a)) {
@@ -1948,6 +1982,7 @@ export function createTaModule(
     mom: [0], cci: [0], dev: [0], percentrank: [0], falling: [0], rising: [0],
     hma: [0], kc: [0], linreg: [0], median: [0], mfi: [0],
     roc: [0], vwap: [0], bbw: [0], kcw: [0], cog: [0], cross: [0, 1],
+    crossover: [0, 1], crossunder: [0, 1],
     max: [0], min: [0], mode: [0], range: [0], rci: [0],
     valuewhen: [1], correlation: [0, 1], stoch: [0, 1, 2],
     tsi: [0], obv: [0, 1],

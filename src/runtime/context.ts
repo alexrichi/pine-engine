@@ -154,6 +154,9 @@ export interface RuntimeContext {
   getSourceInput(id: string, fallback: unknown): unknown;
   /** Unwrap a Series to its current bar value before persisting a `var`. */
   scalar(value: unknown): unknown;
+  /** Pine `==` / `!=` with `na` propagation. */
+  eq(left: unknown, right: unknown): boolean;
+  neq(left: unknown, right: unknown): boolean;
   /** `time(timeframe, session, timezone)` differs from the `time` variable. */
   timeCall(timeframe?: string, session?: string, timezone?: string): number;
   timeCloseCall(timeframe?: string, session?: string, timezone?: string): number;
@@ -813,6 +816,21 @@ export function createContext(
     toStr(value: unknown): string {
       const scalar = value instanceof Series ? value.get(0) : value;
       return isNa(scalar) ? 'NaN' : String(scalar);
+    },
+
+    /** Pine `==` / `!=`: a comparison with `na` is `na`, not false or true. */
+    eq(left: unknown, right: unknown): boolean {
+      const a = left instanceof Series ? left.get(0) : left;
+      const b = right instanceof Series ? right.get(0) : right;
+      if (isNa(a) || isNa(b)) return NA as unknown as boolean;
+      return a === b;
+    },
+
+    neq(left: unknown, right: unknown): boolean {
+      const a = left instanceof Series ? left.get(0) : left;
+      const b = right instanceof Series ? right.get(0) : right;
+      if (isNa(a) || isNa(b)) return NA as unknown as boolean;
+      return a !== b;
     },
 
     field(value: unknown, name: string): unknown {

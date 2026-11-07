@@ -1205,12 +1205,17 @@ private fnParams = new Set<string>();
     // Pine uses 'and', 'or', 'not'
     if (op === 'and') op = '&&';
     else if (op === 'or') op = '||';
-    else if (op === '!=') op = '!==';
-    else if (op === '==') op = '===';
 
     // A variable can hold a builtin Series (`x = close`); equality and logical
-    // operators need its current value, not the object identity.
-    if (['===', '!==', '<', '>', '<=', '>=', '&&', '||'].includes(op)) {
+    // operators need its current value, not the object identity. Pine returns
+    // `na` when either side of `==` / `!=` is `na`, so those go through helpers.
+    if (op === '==' ) {
+      return `__rt.eq(${left}, ${right})`;
+    }
+    if (op === '!=') {
+      return `__rt.neq(${left}, ${right})`;
+    }
+    if (['<', '>', '<=', '>=', '&&', '||'].includes(op)) {
       return `__rt.scalar(${left}) ${op} __rt.scalar(${right})`;
     }
     return `${left} ${op} ${right}`;

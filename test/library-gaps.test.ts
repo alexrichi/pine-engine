@@ -116,6 +116,55 @@ plot(vals.get(0), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
   });
 
+  it('keeps ta.crossover state separate for each call site', () => {
+    const result = run(`//@version=6
+indicator("cross sites")
+fast = ta.crossover(close, 102) ? 1 : 0
+slow = ta.crossover(close, 105) ? 1 : 0
+plot(fast, "fast")
+plot(slow, "slow")
+`);
+    expect(result.ok).toBe(true);
+    const fast = result.plots[0]!.values;
+    const slow = result.plots[1]!.values;
+    expect(fast[2]).toBe(1);
+    expect(slow[5]).toBe(1);
+    expect(slow[6]).toBe(0);
+  });
+
+  it('compares a lazy-skipped crossover against the last pair it saw', () => {
+    const result = run(`//@version=6
+indicator("lazy cross")
+crossed = bar_index != 4 and ta.crossover(close, 104)
+plot(crossed ? 1 : 0, "crossed")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values[5]).toBe(1);
+  });
+
+  it('propagates na through equality comparisons', () => {
+    const result = run(`//@version=6
+indicator("na eq")
+var float missing = na
+plot(missing == 5, "eq")
+plot(missing != 5, "neq")
+plot(5 != missing, "rev")
+`);
+    expect(result.ok).toBe(true);
+    for (const plot of result.plots) expect(plot.values[0]).toBeNaN();
+  });
+
+  it('keeps an na drawing color out of the serialized drawings', () => {
+    const result = run(`//@version=6
+indicator("box border")
+b = box.new(bar_index, high, bar_index + 1, low)
+b.set_border_color(na)
+plot(close, "close")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.drawings.boxes.at(-1)!.borderColor).toBe('');
+  });
+
   it('snapshots builtin series into UDT constructor args and fields', () => {
     const result = run(`//@version=6
 indicator("udt snapshot")
