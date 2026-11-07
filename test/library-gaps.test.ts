@@ -116,6 +116,23 @@ plot(vals.get(0), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
   });
 
+  it('returns the value of a trailing assignment and keeps parameters over globals', () => {
+    const result = run(`//@version=6
+indicator("tail")
+type P
+    float a = 0.0
+method scaled(P id, float x) =>
+    y = id.a * x
+double(v) =>
+    out = v * 2
+plot(P.new(2.0).scaled(3.0), "method")
+plot(double(4.0), "function")
+`);
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(6);
+    expect(result.plots[1]!.values.at(-1)).toBe(8);
+  });
+
   it('uses host symbol info for syminfo fields', () => {
     const result = runPineScript({
       source: `//@version=6

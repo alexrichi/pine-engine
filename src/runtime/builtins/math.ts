@@ -74,7 +74,10 @@ export const math = {
   toradians: (deg: number): number => deg * (Math.PI / 180),
 
   // Random
-  random: (): number => Math.random(),
+  random: (min: number = 0, max: number = 1): number => {
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return NaN;
+    return min + Math.random() * (max - min);
+  },
 
   // Round to minimum tick (default mintick = 0.01)
   round_to_mintick: (x: number): number => Math.round(x * 100) / 100,

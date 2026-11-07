@@ -392,7 +392,7 @@ export const arrayModule = {
 
   /** Standardize array (z-score). */
   standardize(arr: number[]): number[] {
-    if (arr.length === 0) return [];
+    if (!Array.isArray(arr) || arr.length === 0) return [];
     const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
     const std = Math.sqrt(arr.map(v => (v - mean) ** 2).reduce((a, b) => a + b, 0) / arr.length);
     if (std === 0) return arr.map(() => 0);
@@ -401,6 +401,7 @@ export const arrayModule = {
 
   /** Return sorted indices without modifying the original array. */
   sortIndices(arr: any[], order?: string): number[] {
+    if (!Array.isArray(arr)) return [];
     const dir = order === 'desc' ? -1 : 1;
     return arr.map((_, i) => i).sort((a, b) => {
       if (arr[a] < arr[b]) return -1 * dir;

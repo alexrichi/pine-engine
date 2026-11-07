@@ -760,6 +760,22 @@ private fnParams = new Set<string>();
       out.push(this.indent() + 'return __rt.na;');
       return;
     }
+    // Pine returns the value of a trailing declaration or assignment.
+    if (stmt.kind === 'VariableDeclaration') {
+      const decl = stmt as VariableDeclaration;
+      this.generateStatement(stmt, out);
+      out.push(this.indent() + `return ${this.genExpr({ kind: 'IdentifierExpression', name: decl.name, loc: decl.loc } as IdentifierExpression)};`);
+      return;
+    }
+    if (stmt.kind === 'AssignmentStatement') {
+      const assign = stmt as AssignmentStatement;
+      this.generateStatement(stmt, out);
+      const value = assign.target.kind === 'IdentifierExpression'
+        ? this.genExpr(assign.target)
+        : '__rt.na';
+      out.push(this.indent() + `return ${value};`);
+      return;
+    }
     this.generateStatement(stmt, out);
   }
 
@@ -887,11 +903,18 @@ private fnParams = new Set<string>();
         /^[A-Za-z_]\w*$/.test(decl.selfName)) {
       out.push(this.indent() + `var ${safeIdent(decl.selfName)} = this;`);
     }
+    // Parameters shadow globals with the same name (e.g. a method argument `x`
+    // next to a script-level array `x`).
+    const savedParams = this.fnParams;
+    this.fnParams = new Set(savedParams);
+    if (/^[A-Za-z_]\w*$/.test(decl.selfName)) this.fnParams.add(decl.selfName);
+    for (const param of decl.params) this.fnParams.add(param.name);
     if (Array.isArray(decl.body)) {
-      this.generateBody(decl.body, out);
+      this.genTailBlock(decl.body, out);
     } else {
       out.push(this.indent() + `return ${this.genExpr(decl.body)};`);
     }
+    this.fnParams = savedParams;
     this.indentLevel--;
     out.push(this.indent() + '};');
   }

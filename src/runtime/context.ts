@@ -407,7 +407,16 @@ export function createContext(
     },
 
     ta,
-    math,
+    math: {
+      ...math,
+      round_to_mintick: (value: number): number => {
+        const tick =
+          typeof options.symbolInfo?.mintick === 'number' && options.symbolInfo.mintick > 0
+            ? options.symbolInfo.mintick
+            : 0.01;
+        return Math.round(value / tick) * tick;
+      },
+    },
     color,
     str,
     array: arrayModule,
