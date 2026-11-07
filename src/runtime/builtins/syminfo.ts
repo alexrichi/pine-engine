@@ -13,6 +13,8 @@ export interface SymInfo {
   basecurrency: string;
   currency: string;
   description: string;
+  /** Price scale (`10^digits`), e.g. 10 for a 0.1 tick. */
+  pricescale: number;
   /** Function form: `syminfo.ticker(symbol)`. */
   tickerOf(symbol: unknown): string;
   /** Function form: `syminfo.prefix(symbol)`. */
@@ -39,6 +41,7 @@ export function createSyminfo(overrides: Partial<SymInfo> = {}): SymInfo {
     basecurrency: overrides.basecurrency ?? 'USD',
     currency: overrides.currency ?? 'USD',
     description: overrides.description ?? ticker,
+    pricescale: overrides.pricescale ?? 100,
     ...overrides,
     tickerOf: (symbol: unknown) => splitSymbol(symbol)[1],
     prefixOf: (symbol: unknown) => splitSymbol(symbol)[0],

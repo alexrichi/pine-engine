@@ -116,6 +116,30 @@ plot(vals.get(0), "v")
     expect(result.plots[0]!.values.at(-1)).toBe(bars[0]!.high);
   });
 
+  it('uses host symbol info for syminfo fields', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("syminfo")
+plot(syminfo.mintick, "mintick")
+plot(syminfo.pricescale, "scale")
+`,
+      bars,
+      timeframe: '60',
+      symbol: 'BTCUSDT.P',
+      symbolInfo: {
+        tickerid: 'BINANCE:BTCUSDT.P',
+        ticker: 'BTCUSDT.P',
+        prefix: 'BINANCE',
+        mintick: 0.1,
+        pricescale: 10,
+        type: 'futures',
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(0.1);
+    expect(result.plots[1]!.values.at(-1)).toBe(10);
+  });
+
   it('stores numeric drawing coordinates from builtin series', () => {
     const result = run(`//@version=6
 indicator("draw series", overlay = true)

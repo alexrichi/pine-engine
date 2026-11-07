@@ -4,6 +4,7 @@ export interface BarState {
   ishistory: boolean;
   isrealtime: boolean;
   isconfirmed: boolean;
+  islastconfirmedhistory: boolean;
 }
 
 export function createBarstate(barIndex: number, lastIndex: number): BarState {
@@ -13,6 +14,7 @@ export function createBarstate(barIndex: number, lastIndex: number): BarState {
     ishistory: true,
     isrealtime: false,
     isconfirmed: true,
+    islastconfirmedhistory: barIndex === lastIndex,
   };
 }
 

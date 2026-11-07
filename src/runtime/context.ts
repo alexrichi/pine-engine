@@ -229,6 +229,10 @@ export interface ContextOptions {
   inputs?: Record<string, unknown>;
   symbol?: string;
   timeframe?: string;
+  /** Provider metadata for `syminfo.*` (tick size, type, ticker id, ...). */
+  symbolInfo?: Partial<import('./builtins/syminfo').SymInfo>;
+  /** True while the host streams live bars; the last bar may still be forming. */
+  live?: boolean;
   /** Lower-timeframe bars keyed `<symbol>@<canonical timeframe>`. */
   lowerBars?: Record<string, readonly import('../data/types').Bar[]>;
   onLowerTimeframe?: (symbol: string, timeframe: string) => void;
@@ -326,6 +330,8 @@ export function createContext(
   let executeFn: (() => void) | null = null;
   let currentBarIndex = 0;
   let lastIndex = barsCount - 1;
+  // A live chart's last bar is still forming until its close time; history is closed.
+  const lastBarForming = options.live === true && builtins.time.get(0) + barMs > Date.now();
 
   const plots = new Map<number, PlotData>();
   const hlines: HlineData[] = [];
@@ -410,6 +416,7 @@ export function createContext(
     syminfo: createSyminfo({
       tickerid: symbol,
       ticker: symbol.includes(':') ? symbol.split(':').pop()! : symbol,
+      ...options.symbolInfo,
     }),
     timeframe: createTimeframe(timeframePeriod, () => builtins.time.get(0)),
     chart: {
@@ -510,12 +517,15 @@ export function createContext(
     },
 
     get barstate() {
+      const onLast = currentBarIndex === lastIndex;
+      const live = options.live === true;
       return {
         isfirst: currentBarIndex === 0,
-        islast: currentBarIndex === lastIndex,
-        ishistory: true,
-        isrealtime: false,
-        isconfirmed: true,
+        islast: onLast,
+        ishistory: !live || !onLast,
+        isrealtime: live && onLast,
+        isconfirmed: !onLast || !lastBarForming,
+        islastconfirmedhistory: onLast && !lastBarForming,
       };
     },
 

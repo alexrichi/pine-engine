@@ -269,6 +269,10 @@ export interface PineRunBars {
   /** Canonical timeframe key: `1`, `5`, `60`, `D`, `W`, `M`. */
   timeframe?: string;
   symbol?: string;
+  /** Host metadata for `syminfo.*` (mintick, pricescale, type, tickerid, ...). */
+  symbolInfo?: Record<string, unknown>;
+  /** True while the host streams live bars; the last bar may still be forming. */
+  live?: boolean;
   /** Input overrides for this run; they win over the compile-time values. */
   inputs?: Record<string, number | boolean | string>;
   /**
