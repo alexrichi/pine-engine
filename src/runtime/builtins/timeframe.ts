@@ -80,10 +80,10 @@ export function createTimeframe(periodStr?: string, getTime?: () => number): Tim
     ismonthly: period === 'M',
     isseconds: /S$/i.test(period),
     in_seconds(tf?: string): number {
-      return inSeconds(tf ?? period);
+      return inSeconds(tf || period);
     },
     inSeconds(tf?: string): number {
-      return inSeconds(tf ?? period);
+      return inSeconds(tf || period);
     },
     from_seconds(seconds: number): string {
       return fromSeconds(seconds);
@@ -95,7 +95,7 @@ export function createTimeframe(periodStr?: string, getTime?: () => number): Tim
       if (!getTime) return false;
       const time = getTime();
       if (!Number.isFinite(time)) return false;
-      const target = canonicalTimeframe(tf ?? period);
+      const target = canonicalTimeframe(tf || period);
       const key = periodKey(time, target);
       const previous = seenPeriods.get(target);
       seenPeriods.set(target, key);

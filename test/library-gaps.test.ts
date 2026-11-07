@@ -181,6 +181,22 @@ plot(b, "b")
     expect(result.plots[1]!.values.slice(1)).toEqual([100, 101, 102, 103, 104, 105, 106]);
   });
 
+  it('treats an empty timeframe as the chart timeframe', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("empty timeframe")
+plot(timeframe.in_seconds(""), "seconds")
+plot(timeframe.in_seconds("15"), "fifteen")
+`,
+      bars,
+      timeframe: '5',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBe(300);
+    expect(result.plots[1]!.values.at(-1)).toBe(900);
+  });
+
   it('runs a descending for loop without an explicit step', () => {
     const result = run(`//@version=6
 indicator("descending for")
