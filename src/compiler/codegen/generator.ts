@@ -1491,7 +1491,8 @@ private fnParams = new Set<string>();
     }
 
     // Higher-timeframe builtin sources can be resampled from the chart bars.
-    // Arbitrary expressions still return na with a warning.
+    // Anything else (arrays, UDTs, mixed expressions) runs through a nested
+    // HTF probe that captures the expression per HTF bar.
     if (calleeName === 'request.security') {
       const specs = this.securitySpecs(this.securityArg(call, 'expression', 2)?.value);
       if (specs) {
@@ -1504,6 +1505,15 @@ private fnParams = new Set<string>();
         const ignoreTimeframe = this.securityOption(call, 'ignore_invalid_timeframe');
         return `__rt.request.securitySource(${symbol}, ${timeframe}, ${value}, ${gaps}, ${lookahead}, ${ignoreSymbol}, ${ignoreTimeframe})`;
       }
+      const symbol = this.securityExprArg(call, 'symbol', 0);
+      const timeframe = this.securityExprArg(call, 'timeframe', 1);
+      const expression = this.securityExprArg(call, 'expression', 2);
+      const gaps = this.securityExprArg(call, 'gaps', 3);
+      const lookahead = this.securityExprArg(call, 'lookahead', 4);
+      const ignoreSymbol = this.securityOption(call, 'ignore_invalid_symbol');
+      const ignoreTimeframe = this.securityOption(call, 'ignore_invalid_timeframe');
+      const site = this.callSiteId();
+      return `__rt.request.security(${symbol}, ${timeframe}, ${expression}, ${gaps}, ${lookahead}, ${ignoreSymbol}, ${ignoreTimeframe}, ${site})`;
     }
     if (calleeName === 'request.security_lower_tf') {
       const specs = this.securitySpecs(this.securityArg(call, 'expression', 2)?.value);

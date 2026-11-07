@@ -2,8 +2,8 @@ import type { Bar } from '../data/types';
 import { createBuiltinVariables } from './builtins/variables';
 import { createTaModule } from './builtins/ta';
 import { createContext, type ContextOptions } from './context';
-import { createRequestModule } from './builtins/request';
-import { resetNaState } from './types/na';
+import { createRequestModule, cloneSnapshot, resampleBars } from './builtins/request';
+import { getFixnanState, resetNaState, setFixnanState } from './types/na';
 import { Series } from './types/series';
 import type {
   ExecutionResult,
@@ -60,6 +60,49 @@ export function executeRunner(
   );
   const { ctx } = internals;
 
+  // A security call whose expression is not a source spec is evaluated by
+  // running the whole script on the resampled HTF bars and snapshotting the
+  // expression per HTF bar. One run per call site and timeframe.
+  const probeCache = new Map<string, unknown[]>();
+  const runProbe = options.securityProbe?.active
+    ? undefined
+    : (site: string, timeframe: string): unknown[] => {
+        const key = `${site}@${timeframe}`;
+        const cached = probeCache.get(key);
+        if (cached) return cached;
+        const htfBars = resampleBars(bars, timeframe);
+        if (htfBars.length === 0) return [];
+        const capture: unknown[] = [];
+        const savedFixnan = getFixnanState();
+        resetNaState();
+        try {
+          executeRunner(runner, htfBars, {
+            ...options,
+            timeframe,
+            lowerBars: undefined,
+            onLowerTimeframe: undefined,
+            securityProbe: {
+              active: true,
+              site,
+              timeframe,
+              capture: (index, value) => {
+                capture[index] = cloneSnapshot(value);
+              },
+            },
+          });
+        } catch {
+          // A script-level guard (e.g. "chart timeframe must be lower") can
+          // reject the probe's context. The main run keeps its na fallback.
+          probeCache.set(key, []);
+          setFixnanState(savedFixnan);
+          return [];
+        } finally {
+          setFixnanState(savedFixnan);
+        }
+        probeCache.set(key, capture);
+        return capture;
+      };
+
   internals.ctx.request = createRequestModule(
     bars,
     () => currentBarIdx,
@@ -68,6 +111,8 @@ export function executeRunner(
     (message) => internals.warnings.push(message),
     options.lowerBars,
     options.onLowerTimeframe,
+    runProbe,
+    options.securityProbe,
   );
 
   resetNaState();

@@ -244,6 +244,8 @@ export interface ContextOptions {
   onLowerTimeframe?: (symbol: string, timeframe: string) => void;
   /** The chart's visible bar window for `chart.*_visible_bar_time`; absent = na. */
   visibleRange?: { left: number; right: number };
+  /** Present only inside a nested HTF security probe. */
+  securityProbe?: import('./builtins/request').SecurityProbe;
 }
 
 /**

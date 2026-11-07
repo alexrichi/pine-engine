@@ -10,7 +10,7 @@ import { NA } from '../types/na';
 import type { Bar } from '../../data/types';
 
 export interface RequestModule {
-  security(symbol: string | any, timeframe: string, expression: any, gaps?: string, lookahead?: string, ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
+  security(symbol: string | any, timeframe: string, expression: any, gaps?: string, lookahead?: string, ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean, siteId?: string): any;
   securitySource(symbol: string | any, timeframe: string, sources: SecuritySource | SecuritySource[] | (SecuritySource | null)[] | string | string[], gaps?: string, lookahead?: string, ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
   securityLowerSource(symbol: string | any, timeframe: string, sources: (SecuritySource | null)[], ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
   security_lower_tf(symbol: string | any, timeframe: string, expression: any, ignoreInvalidSymbol?: boolean, ignoreInvalidTimeframe?: boolean): any;
@@ -31,6 +31,14 @@ export interface SecuritySource {
   fn?: string;
   args?: number[];
   offset?: number;
+}
+
+/** The nested HTF run that captures an expression the source specs cannot express. */
+export interface SecurityProbe {
+  active: boolean;
+  site: string;
+  timeframe: string;
+  capture: (barIndex: number, value: unknown) => void;
 }
 
 const ALIASES: Record<string, string> = {
@@ -122,6 +130,58 @@ function buildBuckets(bars: readonly Bar[], tf: string): { buckets: Bucket[]; lo
   return { buckets, lookup };
 }
 
+/** The higher-timeframe bars a nested security probe runs on. */
+export function resampleBars(bars: readonly Bar[], tf: string): Bar[] {
+  const { buckets } = buildBuckets(bars, tf);
+  return buckets.map((bucket) => ({
+    time: bucket.time,
+    open: bucket.open,
+    high: bucket.high,
+    low: bucket.low,
+    close: bucket.close,
+    volume: bucket.volume,
+  }));
+}
+
+/**
+ * A value captured on an HTF bar. Arrays and UDT objects are copied so later
+ * mutations do not rewrite the snapshot; drawing handles keep their prototype
+ * but are detached from the probe's renderer.
+ */
+export function cloneSnapshot(value: unknown, seen = new Map<object, unknown>()): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Series) return value.get(0);
+  const existing = seen.get(value);
+  if (existing !== undefined) return existing;
+  if (value instanceof Map) {
+    const out = new Map<unknown, unknown>();
+    seen.set(value, out);
+    for (const [key, item] of value) out.set(cloneSnapshot(key, seen), cloneSnapshot(item, seen));
+    return out;
+  }
+  if (value instanceof Set) {
+    const out = new Set<unknown>();
+    seen.set(value, out);
+    for (const item of value) out.add(cloneSnapshot(item, seen));
+    return out;
+  }
+  if (value instanceof Date) return new Date(value.getTime());
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    seen.set(value, out);
+    for (const item of value) out.push(cloneSnapshot(item, seen));
+    return out;
+  }
+  const out = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
+  seen.set(value, out);
+  for (const key of Object.keys(value)) {
+    const item = (value as Record<string, unknown>)[key];
+    if (typeof item === 'function') continue;
+    out[key] = cloneSnapshot(item, seen);
+  }
+  return out;
+}
+
 function bucketSource(bucket: Bucket, index: number, name: string): number {
   switch (name) {
     case 'open': return bucket.open;
@@ -146,6 +206,8 @@ export function createRequestModule(
   onWarning: (message: string) => void = () => {},
   lowerBars: Record<string, readonly Bar[]> = {},
   onLowerTimeframe: (symbol: string, timeframe: string) => void = () => {},
+  runProbe?: (site: string, timeframe: string) => unknown[],
+  securityProbe?: SecurityProbe,
 ): RequestModule {
   const warned = new Set<string>();
   const bucketCache = new Map<string, { buckets: Bucket[]; lookup: Int32Array }>();
@@ -285,26 +347,70 @@ export function createRequestModule(
     symbol: string | any,
     timeframe: string,
     expression: any,
-    _gaps: string = 'barmerge.gaps_off',
-    _lookahead: string = 'barmerge.lookahead_off',
+    gaps: string = 'barmerge.gaps_off',
+    lookahead: string = 'barmerge.lookahead_off',
     ignoreInvalidSymbol = false,
     ignoreInvalidTimeframe = false,
+    siteId?: string,
   ): any {
     const tuple = Array.isArray(expression);
     const currentTimeframe = canonicalTimeframe(getCurrentTimeframe());
     const requested = canonicalTimeframe(timeframe || currentTimeframe);
+    const empty = () => (tuple ? (expression as unknown[]).map(() => NA) : NA);
+
+    // A probe runs the whole script on HTF bars; only the target call site and
+    // timeframe capture, everything else is na to avoid nested probes.
+    if (securityProbe?.active) {
+      if (siteId === securityProbe.site && requested === canonicalTimeframe(securityProbe.timeframe)) {
+        securityProbe.capture(getCurrentBarIndex(), expression);
+        return expression;
+      }
+      return empty();
+    }
+
     if (!sameSymbol(symbol, getCurrentSymbol())) {
       warn(String(symbol ?? ''), requested, false, ignoreInvalidSymbol);
-      return tuple ? expression.map(() => NA) : NA;
+      return empty();
     }
     if (requested !== currentTimeframe) {
-      const lower = timeframeSeconds(requested) > 0 && timeframeSeconds(requested) < timeframeSeconds(currentTimeframe);
-      if (lower) onLowerTimeframe(String(symbol ?? getCurrentSymbol()), requested);
+      const currentSeconds = timeframeSeconds(currentTimeframe);
+      const requestedSeconds = timeframeSeconds(requested);
+      const lower = requestedSeconds > 0 && requestedSeconds < currentSeconds;
+      if (lower) {
+        onLowerTimeframe(String(symbol ?? getCurrentSymbol()), requested);
+        warn(String(symbol ?? ''), requested, true, ignoreInvalidTimeframe);
+        return empty();
+      }
+      // A higher timeframe evaluates the expression in a nested run over the
+      // resampled bars, then reads the bar the security contract selects.
+      if (siteId && runProbe) {
+        const snapshots = runProbe(siteId, requested);
+        if (snapshots.length > 0) {
+          let cached = bucketCache.get(requested);
+          if (!cached) {
+            cached = buildBuckets(bars, requested);
+            bucketCache.set(requested, cached);
+          }
+          const currentIndex = getCurrentBarIndex();
+          const bucketIndex = cached.lookup[currentIndex] ?? -1;
+          if (bucketIndex >= 0) {
+            const gapsOn = gaps === 'barmerge.gaps_on' || gaps === 'gaps_on';
+            if (!gapsOn || cached.buckets[bucketIndex]!.start === currentIndex) {
+              const lookaheadOn = lookahead === 'barmerge.lookahead_on' || lookahead === 'lookahead_on';
+              const target = (lookaheadOn ? bucketIndex : bucketIndex - 1);
+              if (target >= 0 && snapshots[target] !== undefined) {
+                return cloneSnapshot(snapshots[target]);
+              }
+            }
+          }
+          return empty();
+        }
+      }
       warn(String(symbol ?? ''), requested, lower, ignoreInvalidTimeframe);
-      return tuple ? expression.map(() => NA) : NA;
+      return empty();
     }
     if (tuple) {
-      return expression.map((value: unknown) =>
+      return (expression as unknown[]).map((value) =>
         value instanceof Series ? (value as Series<number>).get(0) : value,
       );
     }

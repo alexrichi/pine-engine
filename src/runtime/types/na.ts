@@ -22,6 +22,15 @@ export function resetNaState(): void {
   _lastNonNa = NA;
 }
 
+/** Save/restore the `fixnan` state around a nested security-probe run. */
+export function getFixnanState(): number {
+  return _lastNonNa;
+}
+
+export function setFixnanState(value: number): void {
+  _lastNonNa = value;
+}
+
 export function fixnan(val: unknown): number {
   if (!isNa(val)) {
     _lastNonNa = val as number;

@@ -61,6 +61,68 @@ plot(flag ? mult : 0, "value")
     expect(result.plots[0]!.values.at(-1)).toBe(3.5);
   });
 
+  it('evaluates a non-source security expression on a higher timeframe', () => {
+    const bars: PineBar[] = Array.from({ length: 8 }, (_, index) => {
+      const open = 10 + index;
+      return {
+        time: 1_700_000_000_000 + index * 15 * 60_000,
+        open,
+        high: open + 2,
+        low: open - 1,
+        close: open + 0.5,
+        volume: 1,
+      };
+    });
+    const result = runPineScript({
+      source: `//@version=6
+indicator("security expression")
+plot(request.security(syminfo.tickerid, "60", close + open), "v")
+`,
+      bars,
+      timeframe: '15',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+    // The last 15m bar sits in the second 60m bucket; lookahead is off, so the
+    // value is close+open of the first (closed) 60m bar.
+    expect(result.plots[0]!.values.at(-1)).toBe(bars[3]!.close + bars[0]!.open);
+  });
+
+  it('snapshots a UDT array through a higher-timeframe security call', () => {
+    const bars: PineBar[] = Array.from({ length: 12 }, (_, index) => {
+      const open = 10 + index;
+      return {
+        time: 1_700_000_000_000 + index * 15 * 60_000,
+        open,
+        high: open + 2,
+        low: open - 1,
+        close: open + 0.5,
+        volume: 1,
+      };
+    });
+    const result = runPineScript({
+      source: `//@version=6
+indicator("security array")
+type Item
+    float v
+var items = array.new<Item>()
+if close > open
+    array.push(items, Item.new(close))
+[got] = request.security(syminfo.tickerid, "60", [items])
+plot(array.size(got), "n")
+`,
+      bars,
+      timeframe: '15',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+    // Three 60m bars, one Item each. The last 15m bar reads the previous
+    // closed 60m bar, which held two Items.
+    expect(result.plots[0]!.values.at(-1)).toBe(2);
+  });
+
   it('reads the chart visible window and reports na without one', () => {
     const source = `//@version=6
 indicator("viewport")
