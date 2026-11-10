@@ -150,6 +150,11 @@ const SECURITY_SOURCES = new Set([
   'open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4', 'time', 'bar_index',
 ]);
 
+/** Builtin series a bare `input(close)` default turns into a source input. */
+const INPUT_SOURCE_SERIES = new Set([
+  'open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4',
+]);
+
 const ARRAY_METHODS = new Set([
   'size', 'get', 'set', 'push', 'pop', 'shift', 'unshift', 'clear', 'remove',
   'insert', 'sort', 'reverse', 'join', 'slice', 'includes', 'indexof',
@@ -711,16 +716,31 @@ private fnParams = new Set<string>();
     const savedLocals = this.fnLocalVars;
     const savedPlain = this.fnPlainLocals;
     const savedParams = this.fnParams;
+    const savedVarDecls = this.varDecls;
     this.fnSiteParam = '__site';
     this.fnLocalVars = new Set(savedLocals);
     this.fnPlainLocals = new Set(savedPlain);
     this.fnParams = new Set(savedParams);
+    // A function-local `var` must not leak into the caller's name resolution:
+    // `var max` inside a function used to turn a later top-level `max` into
+    // `__rt.state.max`.
+    this.varDecls = new Map(savedVarDecls);
     for (const param of decl.params) this.fnParams.add(param.name);
     // Pine applies a parameter's default when the caller omits the argument.
     for (const param of decl.params) {
       if (!param.defaultValue) continue;
       const name = safeIdent(param.name);
       out.push(this.indent() + `if (${name} === undefined) ${name} = __rt.scalar(${this.genExpr(param.defaultValue)});`);
+    }
+    // A parameter used with history (`session[1]`) keeps its own series per
+    // call site. Pine inlines functions, so the push happens on every call;
+    // without it the generated `userSeriesGet` always reads na.
+    for (const param of decl.params) {
+      if (!this.historyVars.has(param.name)) continue;
+      const name = safeIdent(param.name);
+      out.push(
+        this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(param.name)}, __rt.scalar(${name}));`,
+      );
     }
     if (Array.isArray(decl.body)) {
       // A block-bodied Pine function returns the value of its last statement,
@@ -734,6 +754,7 @@ private fnParams = new Set<string>();
     this.fnLocalVars = savedLocals;
     this.fnPlainLocals = savedPlain;
     this.fnParams = savedParams;
+    this.varDecls = savedVarDecls;
     this.restoreParamTypes(savedTypes);
     this.indentLevel--;
     out.push(this.indent() + '}');
@@ -917,10 +938,12 @@ private fnParams = new Set<string>();
       const savedLocals = this.fnLocalVars;
       const savedPlain = this.fnPlainLocals;
       const savedParams = this.fnParams;
+      const savedVarDecls = this.varDecls;
       this.fnSiteParam = '__site';
       this.fnLocalVars = new Set(savedLocals);
       this.fnPlainLocals = new Set(savedPlain);
       this.fnParams = new Set(savedParams);
+      this.varDecls = new Map(savedVarDecls);
       this.fnParams.add(selfName);
       for (const param of decl.params) this.fnParams.add(param.name);
       for (const param of decl.params) {
@@ -938,6 +961,7 @@ private fnParams = new Set<string>();
       this.fnLocalVars = savedLocals;
       this.fnPlainLocals = savedPlain;
       this.fnParams = savedParams;
+      this.varDecls = savedVarDecls;
       this.thisAlias = null;
       this.indentLevel--;
       out.push(this.indent() + '}');
@@ -955,7 +979,9 @@ private fnParams = new Set<string>();
     // Parameters shadow globals with the same name (e.g. a method argument `x`
     // next to a script-level array `x`).
     const savedParams = this.fnParams;
+    const savedVarDecls = this.varDecls;
     this.fnParams = new Set(savedParams);
+    this.varDecls = new Map(savedVarDecls);
     if (/^[A-Za-z_]\w*$/.test(decl.selfName)) this.fnParams.add(decl.selfName);
     for (const param of decl.params) this.fnParams.add(param.name);
     for (const param of decl.params) {
@@ -969,6 +995,7 @@ private fnParams = new Set<string>();
       out.push(this.indent() + `return ${this.genExpr(decl.body)};`);
     }
     this.fnParams = savedParams;
+    this.varDecls = savedVarDecls;
     this.indentLevel--;
     out.push(this.indent() + '};');
   }
@@ -2000,6 +2027,7 @@ private fnParams = new Set<string>();
     let title = id;
     let explicitId: string | undefined;
     let defaultValue: unknown = undefined;
+    let defaultExpr: Expression | undefined;
     let type = 'float';
     let defaultSource = 'close';
     let options: string[] | undefined;
@@ -2026,6 +2054,7 @@ private fnParams = new Set<string>();
 
     call.args.forEach((arg, index) => {
       if (arg.name === 'defval' || (arg.name === null && index === 0)) {
+        defaultExpr = arg.value;
         defaultValue = this.getLiteralValue(arg.value);
         if (arg.value.kind === 'IdentifierExpression') defaultSource = (arg.value as IdentifierExpression).name;
       } else if (arg.name === 'title' || (arg.name === null && index === 1)) {
@@ -2078,11 +2107,16 @@ private fnParams = new Set<string>();
       else if (typeof defaultValue === 'string') type = 'string';
       else if (typeof defaultValue === 'number') type = Number.isInteger(defaultValue) ? 'int' : 'float';
     }
+    // Legacy Pine scripts write `input(close, title=...)`; the bare form has a
+    // series default, which makes it a source input even in v6 sources.
+    if (calleeName === 'input' && defaultValue === undefined && INPUT_SOURCE_SERIES.has(defaultSource)) {
+      type = 'source';
+    }
     if (type === 'source') {
       defaultValue = defaultSource;
       // A source input is a series name in the settings; resolve it per bar so
       // `input.source(close)` keeps returning a series when the user changes it.
-      const fallback = this.genExpr(call.args[0]?.value ?? {
+      const fallback = this.genExpr(defaultExpr ?? {
         kind: 'IdentifierExpression',
         name: 'close',
       } as IdentifierExpression);
@@ -2135,6 +2169,7 @@ private fnParams = new Set<string>();
     let colorStr = '#2962FF';
     let linewidth = 1;
     let style = 'line';
+    let offsetExpr: string | undefined;
 
     if (args[0]) val = this.genExpr(args[0].value);
 
@@ -2150,13 +2185,15 @@ private fnParams = new Set<string>();
       } else if (arg.name === 'style') {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'string') style = v;
+      } else if (arg.name === 'offset' || (arg.name === null && args.indexOf(arg) === 7)) {
+        offsetExpr = this.genExpr(arg.value);
       }
     }
 
     // Register plot in metadata
     this.metadata.plots.push({ index: idx, title, color: colorStr, linewidth, style });
 
-    const opts = `{title:${JSON.stringify(title)},color:${JSON.stringify(colorStr)},linewidth:${linewidth},style:${JSON.stringify(style)}}`;
+    const opts = `{title:${JSON.stringify(title)},color:${JSON.stringify(colorStr)},linewidth:${linewidth},style:${JSON.stringify(style)}${offsetExpr ? `,offset:${offsetExpr}` : ''}}`;
     return `__rt.plot(${idx}, ${val}, ${opts})`;
   }
 

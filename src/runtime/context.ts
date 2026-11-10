@@ -140,7 +140,7 @@ export interface RuntimeContext {
   persistentState: Record<string, unknown>;
 
   // Output recording
-  plot(index: number, value: number | null, opts?: Partial<PlotData>): PlotHandle;
+  plot(index: number, value: number | null, opts?: Partial<PlotData> & { offset?: number }): PlotHandle;
   hline(index: number, price: number, opts?: Partial<HlineData>): HlineHandle;
   fill(p1: unknown, p2: unknown, opts?: { color?: string }): void;
   bgcolor(clr: string): void;
@@ -328,6 +328,12 @@ function fillRef(value: unknown): FillRef | null {
 
 function colorString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/** Pine's `offset` argument: a bar shift, truncated like the integer it is. */
+function offsetOf(value: unknown): number {
+  const offset = Number(value);
+  return Number.isFinite(offset) ? Math.trunc(offset) : 0;
 }
 
 export function createContext(
@@ -566,7 +572,7 @@ export function createContext(
     state,
     persistentState,
 
-    plot(index: number, value: number | null, opts?: Partial<PlotData>): PlotHandle {
+    plot(index: number, value: number | null, opts?: Partial<PlotData> & { offset?: number }): PlotHandle {
       let plotData = plots.get(index);
       if (!plotData) {
         plotData = {
@@ -587,6 +593,7 @@ export function createContext(
         time: builtins.time.get(0),
         value: isNa(numValue) ? null : numValue as number,
         barIndex: currentBarIndex,
+        offset: offsetOf(opts?.offset),
       });
       return { __pinePlot: index };
     },
@@ -649,6 +656,8 @@ export function createContext(
         time: builtins.time.get(0),
         value: isNa(numValue) ? null : (numValue ? Number(numValue) : null),
         text: (opts?.text as string) ?? undefined,
+        barIndex: currentBarIndex,
+        offset: offsetOf(opts?.offset),
       });
     },
 
@@ -673,6 +682,8 @@ export function createContext(
         time: builtins.time.get(0),
         value: isNa(numValue) ? null : (numValue ? Number(numValue) : null),
         text: (opts?.text as string) ?? undefined,
+        barIndex: currentBarIndex,
+        offset: offsetOf(opts?.offset),
       });
     },
 
@@ -694,6 +705,8 @@ export function createContext(
       data.values.push({
         time: builtins.time.get(0),
         value: isNa(numValue) ? null : Number(numValue),
+        barIndex: currentBarIndex,
+        offset: offsetOf(opts?.offset),
       });
     },
 
@@ -797,7 +810,10 @@ export function createContext(
           return builtins[value] as Series<number>;
         }
       }
-      if (typeof value === 'number' || value instanceof Series) return value;
+      if (value instanceof Series) return value;
+      // A source input is a series name, never a number. Legacy metadata typed
+      // bare `input(close)` as a float, so a stored 0 must not replace the
+      // series the script compiled with.
       return fallback;
     },
 

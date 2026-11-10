@@ -188,8 +188,10 @@ function plotValues(
     const data = plots.find((candidate) => `plot_${candidate.index}` === plot.id);
     for (const entry of data?.values ?? []) {
       const index = entry.barIndex ?? byTime.get(entry.time);
-      if (index === undefined || index < 0 || index >= values.length) continue;
-      values[index] = entry.value === null ? Number.NaN : entry.value;
+      if (index === undefined) continue;
+      const target = index + (entry.offset ?? 0);
+      if (target < 0 || target >= values.length) continue;
+      values[target] = entry.value === null ? Number.NaN : entry.value;
     }
     return { ...plot, values };
   });
@@ -423,18 +425,35 @@ function tablesOf(result: ExecutionResult): PineTable[] {
   });
 }
 
-function shapesOf(result: ExecutionResult): PineShapePoint[] {
+function shapesOf(result: ExecutionResult, bars: readonly PineBar[]): PineShapePoint[] {
   const points: PineShapePoint[] = [];
   let group = 0;
+  const byTime = new Map<number, number>();
+  bars.forEach((bar, index) => {
+    if (!byTime.has(bar.time)) byTime.set(bar.time, index);
+  });
+
+  /**
+   * Pine's `offset` moves the shape by bars, not by wall time. A negative
+   * offset is how divergence scripts put a label on the pivot instead of on
+   * the later confirmation bar; dropping out-of-range points matches Pine.
+   */
+  const timeOf = (value: { time: number; barIndex?: number; offset?: number }): number | undefined => {
+    const index = value.barIndex ?? byTime.get(value.time);
+    if (index === undefined) return undefined;
+    return bars[index + (value.offset ?? 0)]?.time;
+  };
 
   for (const shape of result.plotshapes ?? []) {
     const signature = group++;
     for (const value of shape.values) {
       if (value.value === null || value.value === 0) continue;
+      const time = timeOf(value);
+      if (time === undefined) continue;
       points.push({
         group: signature,
         title: shape.title,
-        time: value.time,
+        time,
         value: value.value,
         text: value.text,
         style: shape.style,
@@ -449,10 +468,12 @@ function shapesOf(result: ExecutionResult): PineShapePoint[] {
     const signature = group++;
     for (const value of shape.values) {
       if (value.value === null || value.value === 0) continue;
+      const time = timeOf(value);
+      if (time === undefined) continue;
       points.push({
         group: signature,
         title: shape.title,
-        time: value.time,
+        time,
         value: value.value,
         text: value.text ?? shape.char,
         style: 'text_outline',
@@ -467,11 +488,13 @@ function shapesOf(result: ExecutionResult): PineShapePoint[] {
     const signature = group++;
     for (const value of shape.values) {
       if (value.value === null || value.value === 0) continue;
+      const time = timeOf(value);
+      if (time === undefined) continue;
       const up = value.value > 0;
       points.push({
         group: signature,
         title: shape.title,
-        time: value.time,
+        time,
         value: value.value,
         style: up ? 'arrowup' : 'arrowdown',
         location: up ? 'abovebar' : 'belowbar',
@@ -720,7 +743,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           plots: plotValues(result.plots, meta.plots, bars),
           drawings: drawingsOf(result, bars),
           tables: tablesOf(result),
-          shapes: shapesOf(result),
+          shapes: shapesOf(result, bars),
           candles: candlesOf(result, bars),
           priceLines: priceLinesOf(result),
           fills: fillsOf(result, bars),

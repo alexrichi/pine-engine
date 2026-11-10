@@ -368,6 +368,151 @@ plot(ta.sma(src, 3), "sma")`,
     const opens = inputBars.map((bar) => bar.open);
     const expected = (opens[0]! + opens[1]! + opens[2]!) / 3;
     expect(result.plots[0]!.values[2]).toBeCloseTo(expected, 10);
+
+    // Legacy float metadata stored 0 for a source; the compiled default series wins.
+    const legacy = runPineScript({
+      source: `//@version=6
+indicator("Source")
+src = input.source(close, "Source")
+plot(ta.sma(src, 3), "sma")`,
+      bars: inputBars,
+      timeframe: '60',
+      inputs: { Source: 0 },
+    });
+    expect(legacy.ok).toBe(true);
+    const closes = inputBars.map((bar) => bar.close);
+    expect(legacy.plots[0]!.values[2]).toBeCloseTo(
+      (closes[0]! + closes[1]! + closes[2]!) / 3,
+      10,
+    );
+  });
+
+  it('infers a source input from a bare series default', () => {
+    const source = `//@version=6
+indicator("Bare source")
+src = input(title="RSI Source", defval=close)
+plot(ta.sma(src, 3), "sma")`;
+    const program = compilePine({ source });
+    expect(program.ok).toBe(true);
+    if (!program.ok) return;
+    expect(program.meta.inputs).toEqual([
+      { id: 'RSI Source', name: 'RSI Source', type: 'source', defval: 'close' },
+    ]);
+
+    const inputBars = bars(20);
+    const result = runPineScript({
+      source,
+      bars: inputBars,
+      timeframe: '60',
+      inputs: { 'RSI Source': 'high' },
+    });
+    expect(result.ok).toBe(true);
+    const highs = inputBars.map((bar) => bar.high);
+    expect(result.plots[0]!.values[2]).toBeCloseTo(
+      (highs[0]! + highs[1]! + highs[2]!) / 3,
+      10,
+    );
+  });
+
+  it('shifts plots and shapes by the Pine offset', () => {
+    const inputBars = bars(20);
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Offset")
+plot(close, "shifted", offset=-1)
+plotshape(bar_index == 5 ? close : na, "mark", location=location.absolute, offset=-2)`,
+      bars: inputBars,
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+
+    const shifted = result.plots.find((plot) => plot.title === 'shifted');
+    expect(shifted).toBeDefined();
+    expect(shifted!.values[0]).toBeCloseTo(inputBars[1]!.close, 10);
+    expect(shifted!.values[1]).toBeCloseTo(inputBars[2]!.close, 10);
+    expect(shifted!.values.at(-1)).toBeNaN();
+
+    const mark = result.shapes.find((shape) => shape.title === 'mark');
+    expect(mark).toBeDefined();
+    expect(mark!.time).toBe(inputBars[3]!.time);
+    expect(mark!.value).toBeCloseTo(inputBars[5]!.close, 10);
+  });
+
+  it('keeps function-parameter history per call site', () => {
+    const inputBars = bars(20);
+    const history = runPineScript({
+      source: `//@version=6
+indicator("Param history")
+f(x) => x[1]
+plot(f(bar_index), "prev")`,
+      bars: inputBars,
+      timeframe: '60',
+    });
+    expect(history.ok).toBe(true);
+    const previous = history.plots.find((plot) => plot.title === 'prev');
+    expect(previous).toBeDefined();
+    expect(previous!.values[0]).toBeNaN();
+    expect(previous!.values[1]).toBe(0);
+    expect(previous!.values[5]).toBe(4);
+
+    const start = Date.UTC(2026, 0, 1);
+    const sessionBars: PineBar[] = Array.from({ length: 200 }, (_, index) => ({
+      time: start + index * 3_600_000,
+      open: 100,
+      high: 101,
+      low: 99,
+      close: 100,
+      volume: 1,
+    }));
+    const sessions = runPineScript({
+      source: `//@version=6
+indicator("Session starts")
+f(session) =>
+    var n = 0
+    if session > session[1]
+        n += 1
+    n
+s = math.sign(nz(time("60", "1300-2200", "UTC+0")))
+plot(f(s), "starts")`,
+      bars: sessionBars,
+      timeframe: '60',
+    });
+    expect(sessions.ok).toBe(true);
+    const starts = sessions.plots.find((plot) => plot.title === 'starts');
+    expect(starts).toBeDefined();
+    const inSession = (time: number): boolean => {
+      const hour = new Date(time).getUTCHours();
+      return hour >= 13 && hour < 22;
+    };
+    let expected = 0;
+    for (let index = 0; index < sessionBars.length; index += 1) {
+      const active = inSession(sessionBars[index]!.time);
+      if (active && (index === 0 || !inSession(sessionBars[index - 1]!.time))) expected += 1;
+    }
+    expect(expected).toBeGreaterThan(5);
+    expect(starts!.values.at(-1)).toBe(expected);
+  });
+
+  it('keeps function-local var names out of the caller scope', () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Scope")
+f() =>
+    var max = 100
+    var min = 0
+    max
+y = f()
+[max, min] = [1, 2]
+plot(max, "max")
+plot(min, "min")`,
+      bars: bars(10),
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    const max = result.plots.find((plot) => plot.title === 'max');
+    const min = result.plots.find((plot) => plot.title === 'min');
+    expect(max!.values.at(-1)).toBe(1);
+    expect(min!.values.at(-1)).toBe(2);
   });
 
   it('maps plot styles', () => {

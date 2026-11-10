@@ -4,6 +4,8 @@ import { canonicalTimeframe } from './request';
 
 export interface TimeframeInfo {
   period: string;
+  /** Pine `timeframe.main_period`: the chart's own period. */
+  main_period: string;
   multiplier: number;
   isdwm: boolean;
   isintraday: boolean;
@@ -95,6 +97,7 @@ export function createTimeframe(periodStr?: string, getTime?: () => number): Tim
 
   return {
     period,
+    main_period: period,
     multiplier,
     isdwm: isDWM,
     isintraday: !isDWM,

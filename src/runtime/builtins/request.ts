@@ -713,13 +713,15 @@ export function createRequestModule(
       return unsupported('economic');
     },
     dividends(): any {
-      return unsupported('dividends');
+      // A crypto symbol has no dividends; Pine's ignore_invalid_symbol=true
+      // (the common call shape) expects na, not a warning dialog.
+      return NA;
     },
     earnings(): any {
-      return unsupported('earnings');
+      return NA;
     },
     splits(): any {
-      return unsupported('splits');
+      return NA;
     },
     quandl(): any {
       return unsupported('quandl');

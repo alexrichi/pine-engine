@@ -10,7 +10,7 @@ export interface PlotData {
   color: string;
   linewidth: number;
   style: string;
-  values: { time: number; value: number | null; barIndex?: number }[];
+  values: { time: number; value: number | null; barIndex?: number; offset?: number }[];
 }
 
 export interface HlineData {
@@ -60,7 +60,7 @@ export interface PlotShapeData {
   location: string;
   color: string;
   size: string;
-  values: { time: number; value: number | null; text?: string }[];
+  values: { time: number; value: number | null; text?: string; barIndex?: number; offset?: number }[];
 }
 
 export interface PlotCharData {
@@ -70,7 +70,7 @@ export interface PlotCharData {
   location: string;
   color: string;
   size: string;
-  values: { time: number; value: number | null; text?: string }[];
+  values: { time: number; value: number | null; text?: string; barIndex?: number; offset?: number }[];
 }
 
 export interface PlotArrowData {
@@ -78,7 +78,7 @@ export interface PlotArrowData {
   title: string;
   colorup: string;
   colordown: string;
-  values: { time: number; value: number | null }[];
+  values: { time: number; value: number | null; barIndex?: number; offset?: number }[];
 }
 
 export interface PlotCandleData {
