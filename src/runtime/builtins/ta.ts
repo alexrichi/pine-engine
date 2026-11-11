@@ -146,7 +146,7 @@ export interface TaModule {
   // New TA functions
   stoch(source: Series<number>, high: Series<number>, low: Series<number>, length: number): number;
   wma(source: Series<number>, length: number, id?: string): number;
-  vwma(source: Series<number>, volume: Series<number>, length: number, id?: string): number;
+  vwma(source: Series<number>, lengthOrVolume: number | Series<number>, length?: number, id?: string): number;
   rma(source: Series<number>, length: number, id?: string): number;
   swma(source: Series<number>, id?: string): number;
   alma(source: Series<number>, length: number, offset: number, sigma: number, id?: string): number;
@@ -836,14 +836,19 @@ export function createTaModule(
     },
 
     /**
-     * ta.vwma(source, volume, length)
-     * Volume Weighted Moving Average: sma(source * volume, length) / sma(volume, length)
+     * ta.vwma(source, length) — the chart's volume is the weight. The legacy
+     * (source, volume, length) form stays for host callers.
      */
-    vwma(source: Series<number>, volume: Series<number>, length: number, _id?: string): number {
-      if (source.length < length || volume.length < length) return NA as unknown as number;
+    vwma(source: Series<number>, lengthOrVolume: number | Series<number>, length?: number, _id?: string): number {
+      const legacy = lengthOrVolume instanceof Series;
+      const volume = legacy ? lengthOrVolume : getVolume?.();
+      const period = legacy ? length : lengthOrVolume;
+      if (!volume || period === undefined || source.length < period || volume.length < period) {
+        return NA as unknown as number;
+      }
       let svSum = 0;
       let vSum = 0;
-      for (let i = 0; i < length; i++) {
+      for (let i = 0; i < period; i++) {
         const s = source.get(i);
         const v = volume.get(i);
         if (isNa(s) || isNa(v)) return NA as unknown as number;
@@ -1741,8 +1746,9 @@ export function createTaModule(
 
       vals.sort((a, b) => a - b);
       const mid = Math.floor(length / 2);
-      // Pine uses lower middle for even-length
-      return length % 2 === 1 ? vals[mid] : vals[mid - 1];
+      // Pine's median is the standard one: the two middle values are averaged
+      // for an even window.
+      return length % 2 === 1 ? vals[mid] : ((vals[mid - 1] as number) + (vals[mid] as number)) / 2;
     },
 
     roc(source: Series<number>, length: number, _id?: string): number {

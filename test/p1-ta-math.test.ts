@@ -44,12 +44,12 @@ describe('ta.median', () => {
     expect(result).toBe(3);
   });
 
-  it('even-length window: returns lower of the two middle values', () => {
+  it('even-length window: averages the two middle values', () => {
     const ta = makeTa({ value: 0 });
-    // [1,2,3,4] sorted → lower middle = 2
+    // [1,2,3,4] sorted → (2 + 3) / 2 = 2.5
     const s = makeSeries([1, 2, 3, 4]);
     const result = ta.median(s, 4);
-    expect(result).toBe(2);
+    expect(result).toBe(2.5);
   });
 
   it('constant series: median equals the constant', () => {
@@ -279,6 +279,27 @@ describe('ta.kc', () => {
       expect(upper).toBeGreaterThanOrEqual(basis);
       expect(lower).toBeLessThanOrEqual(basis);
     }
+  });
+});
+
+// ===========================================================================
+// ta.vwma
+// ===========================================================================
+
+describe('ta.vwma', () => {
+  it('uses the chart volume with the Pine (source, length) form', () => {
+    const volume = makeSeries([1, 2, 3, 4, 5]);
+    const ta = createTaModule(() => 0, undefined, undefined, undefined, () => volume);
+    const source = makeSeries([10, 20, 30, 40, 50]);
+    // Last 3 bars: (30*3 + 40*4 + 50*5) / (3 + 4 + 5) = 500 / 12.
+    expect(ta.vwma(source, 3)).toBeCloseTo(500 / 12, 10);
+  });
+
+  it('still accepts the explicit volume form', () => {
+    const ta = createTaModule(() => 0);
+    const source = makeSeries([10, 20, 30, 40, 50]);
+    const volume = makeSeries([1, 2, 3, 4, 5]);
+    expect(ta.vwma(source, volume, 3)).toBeCloseTo(500 / 12, 10);
   });
 });
 

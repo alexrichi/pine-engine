@@ -1602,6 +1602,15 @@ private fnParams = new Set<string>();
       return `__rt.${calleeName}(${slots.join(', ')})`;
     }
 
+    // `math.sum(source, length)` needs the source's history even when the
+    // script passes a plain alias; keep a per-call-site series for it.
+    if (calleeName === 'math.sum' && call.args.length === 2 && call.args.every((arg) => arg.name === null)) {
+      const source = this.genExpr(call.args[0].value);
+      const length = this.genExpr(call.args[1].value);
+      const site = this.callSiteId();
+      return `__rt.math.sumSeries(${source}, ${length}, ${site})`;
+    }
+
     // Try to map to runtime
     const mapped = this.mapper.mapFunction(calleeName);
     if (mapped !== undefined) {

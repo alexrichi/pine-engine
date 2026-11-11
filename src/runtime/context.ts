@@ -58,7 +58,10 @@ export interface RuntimeContext {
 
   // Built-in modules
   ta: TaModule;
-  math: typeof math;
+  math: typeof math & {
+    /** Rolling `math.sum` that keeps a series for scalar source aliases. */
+    sumSeries(source: unknown, length: unknown, id: string): number;
+  };
   color: typeof color;
   barstate: BarState;
   str: typeof str;
@@ -374,6 +377,26 @@ export function createContext(
   const alerts: PineAlert[] = [];
   const alertSites = new Set<string>();
   const userSeries = new Map<string, Series<any>>();
+  const mathSumSources = new Map<string, { series: Series<number>; lastBar: number }>();
+  /** Cache a scalar source per call site so `math.sum` sees real history. */
+  function rollingSource(value: unknown, id: string): Series<number> {
+    if (value instanceof Series) return value;
+    const bar = currentBarIndex;
+    let entry = mathSumSources.get(id);
+    if (!entry) {
+      entry = { series: new Series<number>(4096), lastBar: bar - 1 };
+      for (let i = 0; i < bar; i++) entry.series.push(NA as unknown as number);
+      mathSumSources.set(id, entry);
+    }
+    if (bar === entry.lastBar) {
+      entry.series.set(isNa(value) ? (NA as unknown as number) : (value as number));
+    } else {
+      for (let i = entry.lastBar + 1; i < bar; i++) entry.series.push(NA as unknown as number);
+      entry.series.push(isNa(value) ? (NA as unknown as number) : (value as number));
+      entry.lastBar = bar;
+    }
+    return entry.series;
+  }
   const lineModule = createLineModule();
   const labelModule = createLabelModule();
   const boxModule = createBoxModule();
@@ -438,6 +461,11 @@ export function createContext(
     ta,
     math: {
       ...math,
+      sumSeries(source: unknown, length: unknown, id: string): number {
+        const period = Number(length instanceof Series ? length.get(0) : length);
+        if (!Number.isFinite(period) || period <= 0) return NA as unknown as number;
+        return math.sum(rollingSource(source, id), period);
+      },
       round_to_mintick: (value: number): number => {
         const tick =
           typeof options.symbolInfo?.mintick === 'number' && options.symbolInfo.mintick > 0

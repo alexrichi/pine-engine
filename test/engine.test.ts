@@ -184,6 +184,29 @@ plot(slow, "slow")`,
     expect(result.plots[0]!.values.at(-1)).toBeCloseTo(expectedSlow.at(-1)!, 10);
   });
 
+  it('keeps a series alias for the rolling math.sum', () => {
+    const inputBars = bars(12);
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Sum alias")
+src = close
+plot(math.sum(src, 5), "sum")
+plot(math.sum(close, 5), "native")`,
+      bars: inputBars,
+      timeframe: '60',
+    });
+    expect(result.ok).toBe(true);
+    const sum = result.plots.find((plot) => plot.title === 'sum');
+    const native = result.plots.find((plot) => plot.title === 'native');
+    expect(sum).toBeDefined();
+    expect(native).toBeDefined();
+    const closes = inputBars.map((bar) => bar.close);
+    expect(sum!.values[3]).toBeNaN();
+    expect(sum!.values[4]).toBeCloseTo(closes.slice(0, 5).reduce((total, value) => total + value, 0), 10);
+    expect(sum!.values[5]).toBeCloseTo(closes.slice(1, 6).reduce((total, value) => total + value, 0), 10);
+    expect(sum!.values).toEqual(native!.values);
+  });
+
   it('supports multiple stateful calls at different call sites', () => {
     const inputBars = bars();
     const result = runPineScript({
