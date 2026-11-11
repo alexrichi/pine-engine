@@ -46,7 +46,12 @@ export interface PlotDef {
   style: string;
 }
 
-export function compile(source: string): CompileResult {
+export interface CompileOptions {
+  /** Instrument top-level variables for a debug snapshot. */
+  debug?: boolean;
+}
+
+export function compile(source: string, options: CompileOptions = {}): CompileResult {
   const reporter = new DiagnosticReporter();
 
   try {
@@ -64,7 +69,7 @@ export function compile(source: string): CompileResult {
       return { success: false, code: null, ast, diagnostics: reporter.getAll(), metadata: null };
     }
 
-    const generator = new CodeGenerator(reporter);
+    const generator = new CodeGenerator(reporter, options.debug === true);
     const { code, metadata } = generator.generate(ast);
 
     return {

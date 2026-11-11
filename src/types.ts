@@ -264,6 +264,8 @@ export interface PineCompileOptions {
   /** Stable id for the compiled indicator; used in its metadata. */
   id?: string;
   name?: string;
+  /** Instrument top-level variables for `run({ debugBar })`. */
+  debug?: boolean;
   /** Input overrides keyed by the input id from the script metadata. */
   inputs?: Record<string, number | boolean | string>;
 }
@@ -294,6 +296,10 @@ export interface PineRunBars {
   visibleRange?: { left: number; right: number };
   /** A shared cache for nested HTF/LTF security probes (one per engine session). */
   securityProbeCache?: Map<string, unknown[]>;
+  /** Called for each `log.info`, `log.warning` or `log.error` line. */
+  onLog?: (level: 'info' | 'warning' | 'error', message: string) => void;
+  /** Zero-based bar whose top-level variables should be snapshotted. */
+  debugBar?: number;
 }
 
 export interface PineRunResult {
@@ -321,6 +327,8 @@ export interface PineRunResult {
    * An empty list means the script ran with full coverage.
    */
   missingStd: string[];
+  /** Top-level variable snapshot when the run asked for a debug bar. */
+  debug?: { bar: number; values: Record<string, string> };
 }
 
 /** One alert raised by a script on its current bar. */

@@ -117,6 +117,7 @@ export function executeRunner(
             foreignBars: undefined,
             onLowerTimeframe: undefined,
             onForeignSymbol: undefined,
+            onLog: undefined,
             securityProbe: {
               active: true,
               site,
@@ -170,6 +171,10 @@ export function executeRunner(
   }
 
   const lastIndex = bars.length - 1;
+  const debugBar = options.debugBar !== undefined && lastIndex >= 0
+    ? Math.min(Math.max(Math.trunc(options.debugBar), 0), lastIndex)
+    : undefined;
+  let debug: { bar: number; values: Record<string, string> } | undefined;
   for (let i = 0; i < bars.length; i++) {
     currentBarIdx = i;
     internals.updateBar(i, windowedBuiltins, lastIndex);
@@ -185,6 +190,12 @@ export function executeRunner(
         throw new Error(`Bar ${i}: ${errorMessage(cause)}`);
       }
     }
+    if (debugBar !== undefined && i === debugBar) {
+      debug = { bar: i, values: Object.fromEntries(internals.debugVars) };
+    }
+  }
+  if (!debug && internals.debugVars.size > 0 && lastIndex >= 0) {
+    debug = { bar: lastIndex, values: Object.fromEntries(internals.debugVars) };
   }
 
   const defaultMeta: ScriptMetadata = {
@@ -216,6 +227,7 @@ export function executeRunner(
     plotcandles: Array.from(internals.plotcandles.values()),
     plotbars: Array.from(internals.plotbars.values()),
     strategy: strategyResult,
+    debug,
     lines: ctx.line?.all ?? [],
     labels: ctx.label?.all ?? [],
     boxes: ctx.box?.all ?? [],

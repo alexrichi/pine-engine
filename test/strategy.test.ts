@@ -71,6 +71,60 @@ plot(strategy.closedtrades.profit(0))
     expect(trade?.profit).toBe(0);
   });
 
+  it('exposes Pine strategy metrics on a closed round trip', () => {
+    const program = compilePine({
+      source: `//@version=6
+strategy("Metrics", initial_capital = 5000)
+if bar_index == 1
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", from_entry = "Long", limit = close + 10, stop = close - 10)
+strategy.risk.allow_entry_in("long")
+plot(strategy.netprofit_percent, "netprofit_percent")
+plot(strategy.grossprofit_percent, "grossprofit_percent")
+plot(strategy.grossloss_percent, "grossloss_percent")
+plot(strategy.wintrades, "wintrades")
+plot(strategy.losstrades, "losstrades")
+plot(strategy.eventrades, "eventrades")
+plot(strategy.avg_trade, "avg_trade")
+plot(strategy.avg_winning_trade, "avg_winning_trade")
+plot(strategy.avg_winning_trade_percent, "avg_winning_trade_percent")
+plot(strategy.openprofit, "openprofit")
+plot(strategy.max_runup, "max_runup")
+plot(strategy.max_drawdown, "max_drawdown")
+plot(strategy.max_contracts_held_all, "max_contracts_held_all")
+plot(strategy.max_contracts_held_long, "max_contracts_held_long")
+plot(strategy.initial_capital, "initial_capital")
+plot(strategy.fixed == "fixed" ? 1 : 0, "fixed")
+plot(strategy.account_currency == "USD" ? 1 : 0, "account_currency")
+plot(na(strategy.margin_liquidation_price) ? 1 : 0, "margin_na")
+`,
+    });
+    expect(program.ok).toBe(true);
+    if (!program.ok) return;
+    const result = program.run({ bars, timeframe: '60', symbol: 'BINANCE:BTCUSDT' });
+    expect(result.ok).toBe(true);
+    const value = (title: string): number | undefined =>
+      result.plots.find((plot) => plot.title === title)?.values.at(-1);
+    expect(value('netprofit_percent')).toBeCloseTo(0.22, 10);
+    expect(value('grossprofit_percent')).toBeCloseTo(0.22, 10);
+    expect(value('grossloss_percent')).toBe(0);
+    expect(value('wintrades')).toBe(1);
+    expect(value('losstrades')).toBe(0);
+    expect(value('eventrades')).toBe(0);
+    expect(value('avg_trade')).toBeCloseTo(11, 10);
+    expect(value('avg_winning_trade')).toBeCloseTo(11, 10);
+    expect(value('avg_winning_trade_percent')).toBeCloseTo(11, 10);
+    expect(value('openprofit')).toBe(0);
+    expect(value('max_runup')).toBeCloseTo(11, 10);
+    expect(value('max_drawdown')).toBe(0);
+    expect(value('max_contracts_held_all')).toBe(1);
+    expect(value('max_contracts_held_long')).toBe(1);
+    expect(value('initial_capital')).toBe(5000);
+    expect(value('fixed')).toBe(1);
+    expect(value('account_currency')).toBe(1);
+    expect(value('margin_na')).toBe(1);
+  });
+
   it('fills a gap through a stop at the open', () => {
     const gapBars: PineBar[] = [
       { time: 1_000, open: 100, high: 101, low: 99, close: 100, volume: 1 },

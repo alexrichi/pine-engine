@@ -80,23 +80,63 @@ export interface StrategyEngine {
   // Properties
   position_size: number;
   position_avg_price: number;
+  position_entry_name: string;
   equity: number;
   closedtrades: number;
   opentrades: number;
   netprofit: number;
+  netprofit_percent: number;
   grossprofit: number;
+  grossprofit_percent: number;
   grossloss: number;
+  grossloss_percent: number;
+  wintrades: number;
+  losstrades: number;
+  eventrades: number;
+  avg_trade: number;
+  avg_winning_trade: number;
+  avg_losing_trade: number;
+  avg_trade_percent: number;
+  avg_winning_trade_percent: number;
+  avg_losing_trade_percent: number;
+  openprofit: number;
+  openprofit_percent: number;
+  max_drawdown: number;
+  max_drawdown_percent: number;
+  max_runup: number;
+  max_runup_percent: number;
+  max_contracts_held_all: number;
+  max_contracts_held_long: number;
+  max_contracts_held_short: number;
+  account_currency: string;
+  initial_capital: number;
+  margin_liquidation_price: number;
 
   // Constants
   long: string;
   short: string;
+  fixed: string;
+  cash: string;
+  percent_of_equity: string;
+  risk: {
+    allow_entry_in(value: string): void;
+    max_cons_loss_days(count: number, alertMessage?: string): void;
+    max_drawdown(value: number, type: string, alertMessage?: string): void;
+    max_intraday_filled_orders(count: number, alertMessage?: string): void;
+    max_intraday_loss(value: number, type: string, alertMessage?: string): void;
+    max_position_size(contracts: number): void;
+  };
 
   // Internal - called by engine each bar
   processBar(barIndex: number, open: number, high: number, low: number, close: number, time: number): void;
   getResult(): StrategyResult;
 }
 
-export function createStrategyEngine(initialCapital?: number): StrategyEngine {
+export function createStrategyEngine(
+  initialCapital?: number,
+  pointValue: number = 1,
+  accountCurrency: string = 'USD',
+): StrategyEngine {
   const capital = initialCapital ?? 100000;
 
   let currentEquity = capital;
@@ -107,6 +147,22 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
 
   let grossProfit = 0;
   let grossLoss = 0;
+  let winCount = 0;
+  let lossCount = 0;
+  let evenCount = 0;
+  let maxContractsAll = 0;
+  let maxContractsLong = 0;
+  let maxContractsShort = 0;
+
+  // Running high/low water marks for the Pine drawdown and runup getters.
+  let drawdownPeak = capital;
+  let drawdownTrough = capital;
+  let maxDrawdown = 0;
+  let maxDrawdownPercent = 0;
+  let runupTrough = capital;
+  let runupPeak = capital;
+  let maxRunup = 0;
+  let maxRunupPercent = 0;
 
   // Current bar data (set by processBar before user code runs)
   let barIndex = 0;
@@ -142,6 +198,7 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
         position.avgPrice = (position.avgPrice * position.qty + fillPrice * order.qty) / totalQty;
         position.qty = totalQty;
       }
+      updateMaxContracts();
     } else {
       // Exit / close order. qty 0 means the whole position.
       if (position) {
@@ -191,8 +248,12 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
 
     if (profit > 0) {
       grossProfit += profit;
-    } else {
+      winCount += 1;
+    } else if (profit < 0) {
       grossLoss += Math.abs(profit);
+      lossCount += 1;
+    } else {
+      evenCount += 1;
     }
 
     currentEquity += profit;
@@ -272,6 +333,68 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
     } else {
       return (position.avgPrice - barClose) * position.qty;
     }
+  }
+
+  function tradeCostBasis(trade: ClosedTrade): number {
+    return Math.abs(trade.qty) * trade.entryPrice * pointValue;
+  }
+
+  function tradePercent(trade: ClosedTrade): number {
+    const basis = tradeCostBasis(trade);
+    return basis !== 0 ? (trade.profit / basis) * 100 : 0;
+  }
+
+  function averagePercent(predicate: (trade: ClosedTrade) => boolean): number {
+    const selected = closedTrades.filter(predicate);
+    if (selected.length === 0) return Number.NaN;
+    let sum = 0;
+    let count = 0;
+    for (const trade of selected) {
+      const basis = tradeCostBasis(trade);
+      if (basis === 0) continue;
+      sum += tradePercent(trade);
+      count += 1;
+    }
+    return count > 0 ? sum / count : Number.NaN;
+  }
+
+  /** Update the high/low water marks the Pine drawdown/runup getters report. */
+  function updateEquityStats(): void {
+    const equity = currentEquity + getUnrealizedPnL();
+
+    if (equity > drawdownPeak) {
+      drawdownPeak = equity;
+      drawdownTrough = equity;
+    }
+    if (equity < drawdownTrough) {
+      drawdownTrough = equity;
+      const drawdown = drawdownPeak - drawdownTrough;
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown;
+        maxDrawdownPercent = drawdownPeak !== 0 ? (drawdown / Math.abs(drawdownPeak)) * 100 : 0;
+      }
+    }
+
+    if (equity < runupTrough) {
+      runupTrough = equity;
+      runupPeak = equity;
+    }
+    if (equity > runupPeak) {
+      runupPeak = equity;
+      const runup = runupPeak - runupTrough;
+      if (runup > maxRunup) {
+        maxRunup = runup;
+        maxRunupPercent = runupTrough !== 0 ? (runup / Math.abs(runupTrough)) * 100 : 0;
+      }
+    }
+  }
+
+  function updateMaxContracts(): void {
+    const size = position ? (position.direction === 'long' ? position.qty : -position.qty) : 0;
+    const absolute = Math.abs(size);
+    if (absolute > maxContractsAll) maxContractsAll = absolute;
+    if (size > 0) maxContractsLong = Math.max(maxContractsLong, size);
+    else if (size < 0) maxContractsShort = Math.max(maxContractsShort, -size);
   }
 
   const engine: StrategyEngine = {
@@ -450,6 +573,10 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       if (!trade) return Number.NaN;
       switch (field) {
         case 'profit': return trade.profit;
+        case 'profit_percent': {
+          const basis = Math.abs(trade.qty) * trade.entryPrice * pointValue;
+          return basis !== 0 ? (trade.profit / basis) * 100 : 0;
+        }
         case 'commission': return 0;
         case 'size': return trade.qty;
         case 'entry_price': return trade.entryPrice;
@@ -498,9 +625,123 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       return grossLoss;
     },
 
+    get netprofit_percent(): number {
+      return capital !== 0 ? ((currentEquity - capital) / Math.abs(capital)) * 100 : 0;
+    },
+
+    get grossprofit_percent(): number {
+      return capital !== 0 ? (grossProfit / Math.abs(capital)) * 100 : 0;
+    },
+
+    get grossloss_percent(): number {
+      return capital !== 0 ? (grossLoss / Math.abs(capital)) * 100 : 0;
+    },
+
+    get wintrades(): number {
+      return winCount;
+    },
+
+    get losstrades(): number {
+      return lossCount;
+    },
+
+    get eventrades(): number {
+      return evenCount;
+    },
+
+    get avg_trade(): number {
+      return closedTrades.length > 0 ? (currentEquity - capital) / closedTrades.length : Number.NaN;
+    },
+
+    get avg_winning_trade(): number {
+      return winCount > 0 ? grossProfit / winCount : Number.NaN;
+    },
+
+    get avg_losing_trade(): number {
+      return lossCount > 0 ? grossLoss / lossCount : Number.NaN;
+    },
+
+    get avg_trade_percent(): number {
+      return averagePercent(() => true);
+    },
+
+    get avg_winning_trade_percent(): number {
+      return averagePercent((trade) => trade.profit > 0);
+    },
+
+    get avg_losing_trade_percent(): number {
+      return averagePercent((trade) => trade.profit < 0);
+    },
+
+    get openprofit(): number {
+      return getUnrealizedPnL();
+    },
+
+    get openprofit_percent(): number {
+      const realized = currentEquity;
+      return realized !== 0 ? (getUnrealizedPnL() / Math.abs(realized)) * 100 : 0;
+    },
+
+    get max_drawdown(): number {
+      return maxDrawdown;
+    },
+
+    get max_drawdown_percent(): number {
+      return maxDrawdownPercent;
+    },
+
+    get max_runup(): number {
+      return maxRunup;
+    },
+
+    get max_runup_percent(): number {
+      return maxRunupPercent;
+    },
+
+    get max_contracts_held_all(): number {
+      return maxContractsAll;
+    },
+
+    get max_contracts_held_long(): number {
+      return maxContractsLong;
+    },
+
+    get max_contracts_held_short(): number {
+      return maxContractsShort;
+    },
+
+    get account_currency(): string {
+      return accountCurrency;
+    },
+
+    get initial_capital(): number {
+      return capital;
+    },
+
+    get margin_liquidation_price(): number {
+      return Number.NaN;
+    },
+
+    get position_entry_name(): string {
+      return position?.entryId ?? '';
+    },
+
     // Constants
     long: 'long',
     short: 'short',
+    fixed: 'fixed',
+    cash: 'cash',
+    percent_of_equity: 'percent_of_equity',
+    risk: {
+      allow_entry_in(_value: string): void {
+        // Risk rules are not modelled by the engine yet; keep the call valid.
+      },
+      max_cons_loss_days(_count: number, _alertMessage?: string): void {},
+      max_drawdown(_value: number, _type: string, _alertMessage?: string): void {},
+      max_intraday_filled_orders(_count: number, _alertMessage?: string): void {},
+      max_intraday_loss(_value: number, _type: string, _alertMessage?: string): void {},
+      max_position_size(_contracts: number): void {},
+    },
 
     processBar(idx: number, open: number, high: number, low: number, close: number, time: number): void {
       barIndex = idx;
@@ -519,6 +760,8 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
 
       // Try to fill pending orders
       tryFillPending();
+      updateMaxContracts();
+      updateEquityStats();
 
       // Record equity curve point
       equityCurve.push({
@@ -535,20 +778,6 @@ export function createStrategyEngine(initialCapital?: number): StrategyEngine {
       const totalProfit = closedTrades.filter(t => t.profit > 0).reduce((s, t) => s + t.profit, 0);
       const totalLoss = closedTrades.filter(t => t.profit < 0).reduce((s, t) => s + Math.abs(t.profit), 0);
       const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : (totalProfit > 0 ? Infinity : 0);
-
-      // Calculate max drawdown and runup from the equity curve
-      let peak = capital;
-      let trough = capital;
-      let maxDrawdown = 0;
-      let maxRunup = 0;
-      for (const point of equityCurve) {
-        if (point.equity > peak) peak = point.equity;
-        if (point.equity < trough) trough = point.equity;
-        const drawdown = peak - point.equity;
-        if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-        const runup = point.equity - trough;
-        if (runup > maxRunup) maxRunup = runup;
-      }
 
       const openPnl = getUnrealizedPnL();
       return {

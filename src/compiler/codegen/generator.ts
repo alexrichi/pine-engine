@@ -165,6 +165,7 @@ const ARRAY_METHODS = new Set([
 export class CodeGenerator {
   private reporter: DiagnosticReporter;
   private mapper: FunctionMapper;
+  private debug: boolean;
 
   // State for tracking var/varip declarations
   private varDecls: Map<string, string> = new Map(); // name -> 'var' | 'varip'
@@ -228,9 +229,10 @@ private fnParams = new Set<string>();
   private indentLevel = 0;
   private readonly INDENT = '    ';
 
-  constructor(reporter: DiagnosticReporter) {
+  constructor(reporter: DiagnosticReporter, debug = false) {
     this.reporter = reporter;
     this.mapper = new FunctionMapper();
+    this.debug = debug;
   }
 
   generate(program: Program): GenerateResult {
@@ -624,6 +626,12 @@ private fnParams = new Set<string>();
     return `__rt.persistentState.${name}`;
   }
 
+  /** Top-level variables only; function locals have no stable source name. */
+  private emitDebug(name: string, value: string, out: string[]): void {
+    if (!this.debug || this.fnSiteParam) return;
+    out.push(this.indent() + `__rt.debugVar(${JSON.stringify(name)}, ${value});`);
+  }
+
   private genVarDecl(decl: VariableDeclaration, out: string[], isTopLevel = false): void {
     if (decl.isTupleDestructure && decl.tupleNames) {
       // [a, b, c] = ta.macd(...)
@@ -643,6 +651,7 @@ private fnParams = new Set<string>();
         if (this.historyVars.has(tname)) {
           out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(tname)}, ${tupleNames[index]});`);
         }
+        this.emitDebug(tname, tupleNames[index]!, out);
       }
       return;
     }
@@ -677,6 +686,7 @@ private fnParams = new Set<string>();
       if (this.historyVars.has(name)) {
         out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(name)}, ${store});`);
       }
+      this.emitDebug(name, store, out);
     } else if (decl.modifier === 'varip') {
       // varip declarations: first assignment in persistentState
       this.varDecls.set(name, 'varip');
@@ -692,6 +702,7 @@ private fnParams = new Set<string>();
       if (this.historyVars.has(name)) {
         out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(name)}, ${store});`);
       }
+      this.emitDebug(name, store, out);
     } else {
       // Plain declaration. Pine variables hold the current bar's value, not the
       // Series object, so unwrap before storing.
@@ -702,6 +713,7 @@ private fnParams = new Set<string>();
       if (this.historyVars.has(name)) {
         out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(name)}, ${safeIdent(name)});`);
       }
+      this.emitDebug(name, safeIdent(name), out);
     }
   }
 
@@ -1022,6 +1034,7 @@ private fnParams = new Set<string>();
     const target = stmt.target;
     const op = stmt.operator;
     const rhs = this.genExpr(stmt.value);
+    let debugValue: string | null = null;
 
     // Track the declared type for plain declarations, so method syntax on
     // `x = map.new<...>()` or `x = Type.new(...)` dispatches correctly.
@@ -1043,6 +1056,7 @@ private fnParams = new Set<string>();
         const jsOp = op; // same operators in JS
         out.push(this.indent() + `${store} ${jsOp} ${rhs};`);
       }
+      debugValue = store;
       // Update user series for history tracking
       if (targetName && this.historyVars.has(targetName)) {
         out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(targetName)}, ${store});`);
@@ -1066,11 +1080,13 @@ private fnParams = new Set<string>();
       } else {
         out.push(this.indent() + `${lhsStr} ${op} ${rhs};`);
       }
+      debugValue = lhsStr;
       // Update user series for history tracking
       if (targetName && this.historyVars.has(targetName)) {
         out.push(this.indent() + `__rt.userSeriesSet(${this.userSeriesKey(targetName)}, ${lhsStr});`);
       }
     }
+    if (targetName && debugValue) this.emitDebug(targetName, debugValue, out);
   }
 
   private getIdentName(expr: Expression): string | null {

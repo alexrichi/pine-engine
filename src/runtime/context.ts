@@ -198,6 +198,8 @@ export interface RuntimeContext {
   // User variable series history
   userSeriesSet(name: string, value: unknown): void;
   userSeriesGet(name: string, offset: number): unknown;
+  /** Record a top-level variable for the requested debug-bar snapshot. */
+  debugVar(name: string, value: unknown): void;
 
   // Strategy engine
   strategy: StrategyEngine;
@@ -233,6 +235,7 @@ export interface ContextInternals {
   alerts: PineAlert[];
   missing: Set<string>;
   warnings: string[];
+  debugVars: Map<string, string>;
   updateBar(barIdx: number, builtins: BuiltinVariables, lastIndex: number): void;
 }
 
@@ -260,6 +263,10 @@ export interface ContextOptions {
   strategyInitialCapital?: number;
   /** Present only inside a nested HTF security probe. */
   securityProbe?: import('./builtins/request').SecurityProbe;
+  /** Called for each `log.info`, `log.warning` or `log.error` line. */
+  onLog?: (level: 'info' | 'warning' | 'error', message: string) => void;
+  /** Zero-based bar whose top-level variables should be snapshotted. */
+  debugBar?: number;
 }
 
 /**
@@ -373,10 +380,15 @@ export function createContext(
   const plotarrows = new Map<number, PlotArrowData>();
   const plotcandles = new Map<number, PlotCandleData>();
   const plotbars = new Map<number, PlotBarData>();
-  const strategyEngine = createStrategyEngine(options.strategyInitialCapital);
+  const strategyEngine = createStrategyEngine(
+    options.strategyInitialCapital,
+    options.symbolInfo?.pointvalue ?? 1,
+    options.symbolInfo?.currency ?? 'USD',
+  );
   const alerts: PineAlert[] = [];
   const alertSites = new Set<string>();
   const userSeries = new Map<string, Series<any>>();
+  const debugVars = new Map<string, string>();
   const mathSumSources = new Map<string, { series: Series<number>; lastBar: number }>();
   /** Cache a scalar source per call site so `math.sum` sees real history. */
   function rollingSource(value: unknown, id: string): Series<number> {
@@ -805,6 +817,24 @@ export function createContext(
       return val === undefined ? NA : val;
     },
 
+    debugVar(name: string, value: unknown): void {
+      const scalar = value instanceof Series ? value.get(0) : value;
+      if (scalar === undefined || scalar === null ||
+          (typeof scalar === 'number' && !Number.isFinite(scalar))) {
+        debugVars.set(name, 'na');
+        return;
+      }
+      if (typeof scalar === 'number' || typeof scalar === 'boolean' || typeof scalar === 'string') {
+        debugVars.set(name, String(scalar).slice(0, 200));
+        return;
+      }
+      if (Array.isArray(scalar)) {
+        debugVars.set(name, `[array ${scalar.length}]`);
+        return;
+      }
+      debugVars.set(name, '[object]');
+    },
+
     setMetadata(meta: ScriptMetadata): void {
       metadata = meta;
     },
@@ -1000,9 +1030,15 @@ export function createContext(
     },
 
     log: {
-      info(_message: string): void { /* no-op */ },
-      warning(_message: string): void { /* no-op */ },
-      error(_message: string): void { /* no-op */ },
+      info(message: string): void {
+        options.onLog?.('info', String(message ?? ''));
+      },
+      warning(message: string): void {
+        options.onLog?.('warning', String(message ?? ''));
+      },
+      error(message: string): void {
+        options.onLog?.('error', String(message ?? ''));
+      },
     },
   };
 
@@ -1052,6 +1088,7 @@ export function createContext(
     alerts,
     missing,
     warnings,
+    debugVars,
     updateBar,
   };
 }

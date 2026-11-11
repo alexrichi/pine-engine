@@ -1,4 +1,20 @@
 export { compilePine, runPineScript, DEFAULT_ID } from './runtime';
+export { compile } from './compiler/index';
+export type {
+  Program,
+  Statement,
+  Expression,
+  BaseNode,
+  VariableDeclaration,
+  FunctionDeclaration,
+  TypeDeclaration,
+  MethodDeclaration,
+  EnumDeclaration,
+  ImportStatement,
+  CallExpression,
+  MemberExpression,
+  IdentifierExpression,
+} from './compiler/ast/nodes';
 export { canonicalTimeframe, timeframeMs, timeframeMinutes } from './timeframe';
 export type {
   PineBackground,

@@ -184,6 +184,43 @@ plot(slow, "slow")`,
     expect(result.plots[0]!.values.at(-1)).toBeCloseTo(expectedSlow.at(-1)!, 10);
   });
 
+  it('snapshots top-level variables at a requested debug bar', () => {
+    const inputBars: PineBar[] = [
+      { time: 1_000, open: 10, high: 11, low: 9, close: 10, volume: 1 },
+      { time: 2_000, open: 20, high: 21, low: 19, close: 20, volume: 1 },
+      { time: 3_000, open: 30, high: 31, low: 29, close: 35, volume: 1 },
+      { time: 4_000, open: 40, high: 41, low: 39, close: 40, volume: 1 },
+    ];
+    const source = `//@version=6
+indicator("Debug")
+src = close
+var total = 0.0
+total := total + src
+var count = 0
+count := count + 1
+flag = close > open
+plot(src)
+`;
+    const program = compilePine({ source, debug: true });
+    expect(program.ok).toBe(true);
+    if (!program.ok) return;
+
+    expect(program.run({ bars: inputBars, timeframe: '60', debugBar: 2 }).debug).toEqual({
+      bar: 2,
+      values: { src: '35', total: '65', count: '3', flag: 'true' },
+    });
+    expect(program.run({ bars: inputBars, timeframe: '60' }).debug).toEqual({
+      bar: 3,
+      values: { src: '40', total: '105', count: '4', flag: 'false' },
+    });
+    expect(program.run({ bars: inputBars, timeframe: '60', debugBar: 99 }).debug?.bar).toBe(3);
+
+    const plain = compilePine({ source });
+    expect(plain.ok).toBe(true);
+    if (!plain.ok) return;
+    expect(plain.run({ bars: inputBars, timeframe: '60', debugBar: 1 }).debug?.values).toEqual({});
+  });
+
   it('keeps a series alias for the rolling math.sum', () => {
     const inputBars = bars(12);
     const result = runPineScript({

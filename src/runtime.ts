@@ -681,7 +681,7 @@ function barOf(bar: PineBar): Bar {
  */
 export function compilePine(options: PineCompileOptions): PineProgram {
   const name = options.name ?? 'Pine';
-  const compiled = compileSource(options.source);
+  const compiled = compileSource(options.source, { debug: options.debug === true });
   if (!compiled.success || !compiled.code) {
     const error = firstError(compiled);
     return {
@@ -710,7 +710,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
   return {
     ok: true,
     meta,
-    run({ bars, timeframe, symbol, inputs, lowerBars, foreignBars, onLowerTimeframe, onForeignSymbol, symbolInfo, live, visibleRange, securityProbeCache }: PineRunBars): PineRunResult {
+    run({ bars, timeframe, symbol, inputs, lowerBars, foreignBars, onLowerTimeframe, onForeignSymbol, onLog, debugBar, symbolInfo, live, visibleRange, securityProbeCache }: PineRunBars): PineRunResult {
       const values: Record<string, unknown> = { ...compileInputs, ...(inputs ?? {}) };
       try {
         const result = executeRunner(runner, bars.map(barOf), {
@@ -722,6 +722,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           visibleRange,
           securityProbeCache,
           strategyInitialCapital: meta.initialCapital,
+          debugBar,
           lowerBars: lowerBars
             ? Object.fromEntries(
                 Object.entries(lowerBars).map(([key, series]) => [key, series.map(barOf)]),
@@ -734,6 +735,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
             : undefined,
           onLowerTimeframe,
           onForeignSymbol,
+          onLog,
         });
         const runtimeWarnings = result.warnings ?? [];
         return {
@@ -751,6 +753,7 @@ export function compilePine(options: PineCompileOptions): PineProgram {
           inputs: meta.inputs,
           alerts: result.alerts ?? [],
           strategy: result.strategy,
+          debug: result.debug,
           warnings: [...meta.warnings, ...runtimeWarnings],
           missingStd: result.missing ?? [],
         };

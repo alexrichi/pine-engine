@@ -139,6 +139,8 @@ export interface ExecutionResult {
   missing?: string[];
   /** Runtime warnings such as unsupported request.security calls. */
   warnings?: string[];
+  /** Top-level variable snapshot requested by the host. */
+  debug?: { bar: number; values: Record<string, string> };
 }
 
 export function createRuntime(compiledCode: string, bars: Bar[]): ExecutionResult {
