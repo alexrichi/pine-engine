@@ -185,6 +185,21 @@ describe('plot() generation', () => {
     const src = `//@version=6\nindicator("Test")\nplot(close)\n`;
     const code = compileOk(src);
     expect(code).toContain('__rt.plot(0, __rt.close,');
+    expect(code).not.toContain('seriesColor:true');
+  });
+
+  it('evaluates a computed color on every bar', () => {
+    const src = `//@version=6\nindicator("Test")\ntone = close >= open ? color.green : color.red\nplot(close, "Close", tone)\n`;
+    const code = compileOk(src);
+    expect(code).toContain('__rt.plot(0, __rt.close,');
+    expect(code).toContain('color:((tone) ??');
+    expect(code).toContain('seriesColor:true');
+  });
+
+  it('accepts a positional line style', () => {
+    const src = `//@version=6\nindicator("Test")\nplot(close, "Close", color.orange, 1, plot.style_linebr)\n`;
+    const result = compile(src);
+    expect(result.metadata?.plots?.[0]?.style).toBe('style_linebr');
   });
 
   it('includes plot title in opts when passed as positional arg', () => {

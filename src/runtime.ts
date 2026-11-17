@@ -185,6 +185,8 @@ function plotValues(
 
   return meta.map((plot) => {
     const values = new Array<number>(bars.length).fill(Number.NaN);
+    const colors = new Array<string | null>(bars.length).fill(null);
+    let hasColors = false;
     const data = plots.find((candidate) => `plot_${candidate.index}` === plot.id);
     for (const entry of data?.values ?? []) {
       const index = entry.barIndex ?? byTime.get(entry.time);
@@ -192,8 +194,12 @@ function plotValues(
       const target = index + (entry.offset ?? 0);
       if (target < 0 || target >= values.length) continue;
       values[target] = entry.value === null ? Number.NaN : entry.value;
+      if (entry.color) {
+        colors[target] = entry.color;
+        hasColors = true;
+      }
     }
-    return { ...plot, values };
+    return { ...plot, ...(data?.seriesColor ? { color: data.color } : {}), values, ...(hasColors ? { colors } : {}) };
   });
 }
 

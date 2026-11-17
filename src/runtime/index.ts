@@ -10,7 +10,9 @@ export interface PlotData {
   color: string;
   linewidth: number;
   style: string;
-  values: { time: number; value: number | null; barIndex?: number; offset?: number }[];
+  /** The color is a series expression; values may carry per-bar overrides. */
+  seriesColor?: boolean;
+  values: { time: number; value: number | null; barIndex?: number; offset?: number; color?: string }[];
 }
 
 export interface HlineData {

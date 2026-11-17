@@ -1347,3 +1347,24 @@ plotbar(open, high, low, close, "Bar", color = bar_index % 2 == 0 ? color.blue :
     ]);
   });
 });
+
+describe("plot colors", () => {
+  it("keeps the per-bar color and positional style", () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("Colors")
+tone = bar_index % 2 == 0 ? color.green : color.red
+plot(close, "Close", tone, 1, plot.style_linebr)`,
+      bars: bars(4),
+      timeframe: "60",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.color).toBe('#4CAF50');
+    expect(result.plots[0]!.colors).toEqual([
+      null,
+      '#FF5252',
+      null,
+      '#FF5252',
+    ]);
+  });
+});

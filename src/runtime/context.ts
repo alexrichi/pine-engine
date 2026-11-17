@@ -612,7 +612,7 @@ export function createContext(
     state,
     persistentState,
 
-    plot(index: number, value: number | null, opts?: Partial<PlotData> & { offset?: number }): PlotHandle {
+    plot(index: number, value: number | null, opts?: Partial<PlotData> & { offset?: number; seriesColor?: boolean }): PlotHandle {
       let plotData = plots.get(index);
       if (!plotData) {
         plotData = {
@@ -621,6 +621,7 @@ export function createContext(
           color: opts?.color ?? '#2962FF',
           linewidth: opts?.linewidth ?? 1,
           style: opts?.style ?? 'line',
+          seriesColor: opts?.seriesColor === true,
           values: [],
         };
         plots.set(index, plotData);
@@ -629,11 +630,13 @@ export function createContext(
       const numValue = (value !== null && typeof value === 'object' && 'get' in (value as any))
         ? (value as any).get(0)
         : value;
+      const barColor = colorString(opts?.color);
       plotData.values.push({
         time: builtins.time.get(0),
         value: isNa(numValue) ? null : numValue as number,
         barIndex: currentBarIndex,
         offset: offsetOf(opts?.offset),
+        ...(opts?.seriesColor && barColor && barColor !== plotData.color ? { color: barColor } : {}),
       });
       return { __pinePlot: index };
     },

@@ -28,6 +28,8 @@ export interface PinePlotMeta {
 export interface PinePlot extends PinePlotMeta {
   /** One value per input bar; `NaN` where Pine produced `na`. */
   values: number[];
+  /** Per-bar color overrides, index-aligned to `values`; `null` keeps the plot color. */
+  colors?: (string | null)[];
 }
 
 export interface PineLine {

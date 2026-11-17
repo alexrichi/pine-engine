@@ -2192,6 +2192,8 @@ private fnParams = new Set<string>();
     let val = 'null';
     let title = `plot_${idx}`;
     let colorStr = '#2962FF';
+    let colorExpr = JSON.stringify(colorStr);
+    let dynamicColor = false;
     let linewidth = 1;
     let style = 'line';
     let offsetExpr: string | undefined;
@@ -2203,11 +2205,20 @@ private fnParams = new Set<string>();
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'string') title = v;
       } else if (arg.name === 'color' || (arg.name === null && args.indexOf(arg) === 2)) {
-        colorStr = this.resolveColor(arg.value) ?? colorStr;
+        const resolved = this.resolveColor(arg.value);
+        if (resolved !== undefined) {
+          colorStr = resolved;
+          colorExpr = JSON.stringify(resolved);
+        } else {
+          // A series/conditional color: evaluate it on every bar. An explicit
+          // `na` color hides the segment, Pine's `color = na` contract.
+          colorExpr = `((${this.genExpr(arg.value)}) ?? '#00000000')`;
+          dynamicColor = true;
+        }
       } else if (arg.name === 'linewidth' || (arg.name === null && args.indexOf(arg) === 3)) {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'number') linewidth = v;
-      } else if (arg.name === 'style') {
+      } else if (arg.name === 'style' || (arg.name === null && args.indexOf(arg) === 4)) {
         const v = this.getLiteralValue(arg.value);
         if (typeof v === 'string') style = v;
       } else if (arg.name === 'offset' || (arg.name === null && args.indexOf(arg) === 7)) {
@@ -2218,7 +2229,7 @@ private fnParams = new Set<string>();
     // Register plot in metadata
     this.metadata.plots.push({ index: idx, title, color: colorStr, linewidth, style });
 
-    const opts = `{title:${JSON.stringify(title)},color:${JSON.stringify(colorStr)},linewidth:${linewidth},style:${JSON.stringify(style)}${offsetExpr ? `,offset:${offsetExpr}` : ''}}`;
+    const opts = `{title:${JSON.stringify(title)},color:${colorExpr},linewidth:${linewidth},style:${JSON.stringify(style)}${dynamicColor ? ',seriesColor:true' : ''}${offsetExpr ? `,offset:${offsetExpr}` : ''}}`;
     return `__rt.plot(${idx}, ${val}, ${opts})`;
   }
 
