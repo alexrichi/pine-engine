@@ -12,6 +12,7 @@ export interface BuiltinVariables {
   hl2: Series<number>;
   hlc3: Series<number>;
   ohlc4: Series<number>;
+  hlcc4: Series<number>;
 }
 
 export function createBuiltinVariables(bars: Bar[]): BuiltinVariables {
@@ -25,6 +26,7 @@ export function createBuiltinVariables(bars: Bar[]): BuiltinVariables {
   const hl2 = new Series<number>(bars.length + 10);
   const hlc3 = new Series<number>(bars.length + 10);
   const ohlc4 = new Series<number>(bars.length + 10);
+  const hlcc4 = new Series<number>(bars.length + 10);
 
   for (let i = 0; i < bars.length; i++) {
     const bar = bars[i];
@@ -38,7 +40,9 @@ export function createBuiltinVariables(bars: Bar[]): BuiltinVariables {
     hl2.push((bar.high + bar.low) / 2);
     hlc3.push((bar.high + bar.low + bar.close) / 3);
     ohlc4.push((bar.open + bar.high + bar.low + bar.close) / 4);
+    // PineScript's hlcc4: (high + low + 2 * close) / 4.
+    hlcc4.push((bar.high + bar.low + 2 * bar.close) / 4);
   }
 
-  return { open, high, low, close, volume, time, bar_index, hl2, hlc3, ohlc4 };
+  return { open, high, low, close, volume, time, bar_index, hl2, hlc3, ohlc4, hlcc4 };
 }

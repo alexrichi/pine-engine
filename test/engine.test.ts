@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { executeScript, indicator, plot, ta, close } from 'oakscriptjs/script';
 import { compilePine, runPineScript, type PineBar } from '../src';
 
@@ -1366,5 +1366,79 @@ plot(close, "Close", tone, 1, plot.style_linebr)`,
       null,
       '#FF5252',
     ]);
+  });
+});
+
+describe("PineScript parity fixes", () => {
+  it("computes hlcc4 as (high + low + 2 * close) / 4", () => {
+    const inputBars = bars(5);
+    const result = runPineScript({
+      source: `//@version=6
+indicator("hlcc4")
+plot(hlcc4)`,
+      bars: inputBars,
+      timeframe: "60",
+    });
+    const last = inputBars[inputBars.length - 1]!;
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.values.at(-1)).toBeCloseTo(
+      (last.high + last.low + 2 * last.close) / 4,
+      12,
+    );
+  });
+
+  it("gives untitled outputs the PineScript default titles", () => {
+    const result = runPineScript({
+      source: `//@version=6
+indicator("titles")
+plot(close)
+hline(1)`,
+      bars: bars(3),
+      timeframe: "60",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.plots[0]!.title).toBe("Plot");
+    expect(result.priceLines[0]?.title).toBe("Level");
+  });
+
+  it("keeps seeded math.random deterministic per call site", () => {
+    const source = `//@version=6
+indicator("random")
+a = math.random(0, 100, 42)
+b = math.random(0, 100, 42)
+plot(a, "a")
+plot(b, "b")`;
+    const first = runPineScript({ source, bars: bars(6), timeframe: "60" });
+    const second = runPineScript({ source, bars: bars(6), timeframe: "60" });
+    expect(first.ok).toBe(true);
+    expect(first.plots[0]!.values.at(-1)).toBe(second.plots[0]!.values.at(-1));
+    // PineScript keeps one generator per call site, so the same seed gives the
+    // same sequence at both sites.
+    expect(first.plots[0]!.values.at(-1)).toBe(first.plots[1]!.values.at(-1));
+  });
+});
+
+describe("exact window sums", () => {
+  it("sums a window with one rounding, as PineScript", () => {
+    const tiny = [0.1, 0.2, 0.3].map((close, index) => ({
+      time: 1_700_000_000_000 + index * 60_000,
+      open: close,
+      high: close,
+      low: close,
+      close,
+      volume: 1,
+    }));
+    const result = runPineScript({
+      source: `//@version=6
+indicator("sums")
+plot(math.sum(close, 3))
+plot(ta.sma(close, 3))`,
+      bars: tiny,
+      timeframe: "60",
+    });
+    expect(result.ok).toBe(true);
+    // 0.1 + 0.2 + 0.3 left to right is 0.6000000000000001; the exact sum rounds once.
+    expect(result.plots[0]!.values.at(-1)).toBe(0.6);
+    expect(result.plots[1]!.values.at(-1)).toBe(0.6 / 3);
   });
 });

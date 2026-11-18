@@ -1,5 +1,32 @@
 import { NA, isNa } from '../types/na';
 import { Series } from '../types/series';
+import { windowSum } from './exact-sum';
+
+/**
+ * PineScript's seeded `math.random`: Java's linear congruential generator
+ * (`java.util.Random`) and its `nextDouble()`. Each call site keeps its own
+ * generator, so two `math.random(seed = n)` calls give different sequences.
+ */
+function seededRandom(seed: number): () => number {
+  const mask = (1n << 48n) - 1n;
+  let state = (BigInt(Math.trunc(seed)) ^ 0x5deece66dn) & mask;
+  const next = (bits: bigint): bigint => {
+    state = (0x5deece66dn * state + 11n) & mask;
+    return state >> (48n - bits);
+  };
+  return () => {
+    const hi = next(26n);
+    const lo = next(27n);
+    return Number((hi << 27n) + lo) / 2 ** 53;
+  };
+}
+
+const seededRandoms = new Map<string, () => number>();
+
+/** Starts every seeded `math.random` sequence again at the start of a script run. */
+export function resetMathRandom(): void {
+  seededRandoms.clear();
+}
 
 export const math = {
   abs: Math.abs,
@@ -45,14 +72,8 @@ export const math = {
     if (sourceOrFirst !== null && typeof sourceOrFirst === 'object' && typeof (sourceOrFirst as any).get === 'function') {
       const source = sourceOrFirst as Series<number>;
       const length = lengthOrRest as number;
-      if (source.length < length) return NA as unknown as number;
-      let total = 0;
-      for (let i = 0; i < length; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        total += v as number;
-      }
-      return total;
+      const total = windowSum(source, length);
+      return Number.isFinite(total) ? total : (NA as unknown as number);
     }
     // Variadic numeric form: sum(a, b, c, ...)
     let total = sourceOrFirst as number;
@@ -74,9 +95,16 @@ export const math = {
   toradians: (deg: number): number => deg * (Math.PI / 180),
 
   // Random
-  random: (min: number = 0, max: number = 1): number => {
+  random: (min: number = 0, max: number = 1, seed?: number, site: string = ''): number => {
     if (!Number.isFinite(min) || !Number.isFinite(max)) return NaN;
-    return min + Math.random() * (max - min);
+    if (!Number.isFinite(seed)) return min + Math.random() * (max - min);
+    const key = `${site}:${seed}`;
+    let next = seededRandoms.get(key);
+    if (!next) {
+      next = seededRandom(seed as number);
+      seededRandoms.set(key, next);
+    }
+    return min + next() * (max - min);
   },
 
   // Round to minimum tick (default mintick = 0.01)

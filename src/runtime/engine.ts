@@ -267,6 +267,7 @@ function createWindowedBuiltins(bars: Bar[]): BuiltinVariables {
     hl2: new Series<number>(size),
     hlc3: new Series<number>(size),
     ohlc4: new Series<number>(size),
+    hlcc4: new Series<number>(size),
   };
 }
 
@@ -282,4 +283,5 @@ function updateWindowedBuiltins(wb: BuiltinVariables, bars: Bar[], i: number): v
   wb.hl2.push((bar.high + bar.low) / 2);
   wb.hlc3.push((bar.high + bar.low + bar.close) / 3);
   wb.ohlc4.push((bar.open + bar.high + bar.low + bar.close) / 4);
+  wb.hlcc4.push((bar.high + bar.low + 2 * bar.close) / 4);
 }

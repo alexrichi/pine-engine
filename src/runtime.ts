@@ -114,7 +114,7 @@ function plotMeta(plot: PlotDef): PinePlotMeta {
   const { color, transparency } = plotColor(plot.color);
   return {
     id: `plot_${plot.index}`,
-    title: plot.title || `plot_${plot.index}`,
+    title: plot.title || 'Plot',
     type: PLOT_TYPES[plot.style] ?? 'line',
     color,
     width: plot.linewidth,

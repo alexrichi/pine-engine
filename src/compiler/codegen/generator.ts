@@ -147,12 +147,12 @@ const KNOWN_NAMESPACES = new Set([
 
 /** Builtin sources that request.security can resample from the chart's own bars. */
 const SECURITY_SOURCES = new Set([
-  'open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4', 'time', 'bar_index',
+  'open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4', 'hlcc4', 'time', 'bar_index',
 ]);
 
 /** Builtin series a bare `input(close)` default turns into a source input. */
 const INPUT_SOURCE_SERIES = new Set([
-  'open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4',
+  'open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4', 'hlcc4',
 ]);
 
 const ARRAY_METHODS = new Set([
@@ -1399,6 +1399,19 @@ private fnParams = new Set<string>();
       return '/* metadata */';
     }
 
+    // PineScript keeps one seeded generator per `math.random` call site.
+    if (calleeName === 'math.random') {
+      const positional = call.args.filter((arg) => arg.name === null);
+      const pick = (name: string, index: number): CallArgument | undefined =>
+        call.args.find((arg) => arg.name === name) ?? positional[index];
+      const min = pick('min', 0);
+      const max = pick('max', 1);
+      const seed = pick('seed', 2);
+      return `__rt.math.random(${min ? this.genExpr(min.value) : '0'}, ${
+        max ? this.genExpr(max.value) : '1'
+      }, ${seed ? this.genExpr(seed.value) : 'NaN'}, ${this.callSiteId()})`;
+    }
+
     // input() handling
     if (calleeName === 'input' || calleeName === 'input.int' || calleeName === 'input.float' ||
         calleeName === 'input.bool' || calleeName === 'input.string' || calleeName === 'input.source' ||
@@ -2190,7 +2203,7 @@ private fnParams = new Set<string>();
     const args = call.args;
 
     let val = 'null';
-    let title = `plot_${idx}`;
+    let title = 'Plot';
     let colorStr = '#2962FF';
     let colorExpr = JSON.stringify(colorStr);
     let dynamicColor = false;
@@ -2238,7 +2251,7 @@ private fnParams = new Set<string>();
     const args = call.args;
 
     let price = '0';
-    let title = `hline_${idx}`;
+    let title = 'Level';
     let colorStr = '#787B86';
     let linewidth = 1;
     let linestyle = 'solid';

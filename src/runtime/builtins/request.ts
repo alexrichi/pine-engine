@@ -211,6 +211,7 @@ function bucketSource(bucket: Bucket, index: number, name: string): number {
     case 'hl2': return (bucket.high + bucket.low) / 2;
     case 'hlc3': return (bucket.high + bucket.low + bucket.close) / 3;
     case 'ohlc4': return (bucket.open + bucket.high + bucket.low + bucket.close) / 4;
+    case 'hlcc4': return (bucket.high + bucket.low + 2 * bucket.close) / 4;
     case 'time': return bucket.time;
     case 'bar_index': return index;
     default: return NA;
@@ -339,6 +340,7 @@ export function createRequestModule(
     if (name === 'hl2') return (bar.high + bar.low) / 2;
     if (name === 'hlc3') return (bar.high + bar.low + bar.close) / 3;
     if (name === 'ohlc4') return (bar.open + bar.high + bar.low + bar.close) / 4;
+    if (name === 'hlcc4') return (bar.high + bar.low + 2 * bar.close) / 4;
     return (bar as unknown as Record<string, number>)[name] ?? NA;
   }
 

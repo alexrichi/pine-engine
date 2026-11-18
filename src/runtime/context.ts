@@ -2,7 +2,7 @@ import { ScriptMetadata } from '../compiler/index';
 import { Series } from './types/series';
 import { isNa, nz, fixnan, NA } from './types/na';
 import { color } from './types/color';
-import { math } from './builtins/math';
+import { math, resetMathRandom } from './builtins/math';
 import { TaModule } from './builtins/ta';
 import { BarState } from './builtins/barstate';
 import { BuiltinVariables } from './builtins/variables';
@@ -48,6 +48,7 @@ export interface RuntimeContext {
   hl2: number;
   hlc3: number;
   ohlc4: number;
+  hlcc4: number;
 
   // Last bar info (set before bar loop)
   last_bar_index: number;
@@ -354,6 +355,7 @@ export function createContext(
   executionTimenow: number = Date.now(),
   options: ContextOptions = {}
 ): ContextInternals {
+  resetMathRandom();
   const state: Record<string, unknown> = {};
   const persistentState: Record<string, unknown> = {};
   const inputs: Record<string, unknown> = { ...(options.inputs ?? {}) };
@@ -455,6 +457,7 @@ export function createContext(
     get hl2() { return builtins.hl2 as any; },
     get hlc3() { return builtins.hlc3 as any; },
     get ohlc4() { return builtins.ohlc4 as any; },
+    get hlcc4() { return builtins.hlcc4 as any; },
 
     series(name: string): Series<number> {
       const b = builtins as unknown as Record<string, Series<number>>;
@@ -617,7 +620,7 @@ export function createContext(
       if (!plotData) {
         plotData = {
           index,
-          title: opts?.title ?? `plot_${index}`,
+          title: opts?.title ?? 'Plot',
           color: opts?.color ?? '#2962FF',
           linewidth: opts?.linewidth ?? 1,
           style: opts?.style ?? 'line',
@@ -645,7 +648,7 @@ export function createContext(
       hlines.push({
         index,
         price,
-        title: opts?.title ?? `hline_${index}`,
+        title: opts?.title ?? 'Level',
         color: colorString(opts?.color) ?? '#787B86',
         linewidth: Number.isFinite(opts?.linewidth) ? opts!.linewidth! : 1,
         linestyle: colorString(opts?.linestyle) ?? 'solid',
@@ -683,7 +686,7 @@ export function createContext(
       if (!data) {
         data = {
           index,
-          title: (opts?.title as string) ?? `plotshape_${index}`,
+          title: (opts?.title as string) ?? 'Shapes',
           style: (opts?.style as string) ?? 'triangleup',
           location: (opts?.location as string) ?? 'abovebar',
           color: (opts?.color as string) ?? '#2962FF',
@@ -709,7 +712,7 @@ export function createContext(
       if (!data) {
         data = {
           index,
-          title: (opts?.title as string) ?? `plotchar_${index}`,
+          title: (opts?.title as string) ?? 'Chars',
           char: (opts?.char as string) ?? '•',
           location: (opts?.location as string) ?? 'abovebar',
           color: (opts?.color as string) ?? '#2962FF',
@@ -735,7 +738,7 @@ export function createContext(
       if (!data) {
         data = {
           index,
-          title: (opts?.title as string) ?? `plotarrow_${index}`,
+          title: (opts?.title as string) ?? 'Arrows',
           colorup: (opts?.colorup as string) ?? '#4CAF50',
           colordown: (opts?.colordown as string) ?? '#FF5252',
           values: [],
@@ -758,7 +761,7 @@ export function createContext(
       if (!data) {
         data = {
           index,
-          title: (opts?.title as string) ?? `plotcandle_${index}`,
+          title: (opts?.title as string) ?? 'PlotCandle',
           color: colorString(opts?.color) ?? '#2962FF',
           wickcolor: colorString(opts?.wickcolor) ?? '#737375',
           bordercolor: colorString(opts?.bordercolor) ?? '#2962FF',
@@ -784,7 +787,7 @@ export function createContext(
       if (!data) {
         data = {
           index,
-          title: (opts?.title as string) ?? `plotbar_${index}`,
+          title: (opts?.title as string) ?? 'PlotBar',
           color: colorString(opts?.color) ?? '#2962FF',
           values: [],
         };
@@ -867,7 +870,7 @@ export function createContext(
         if (series) return series;
         if (value === 'open' || value === 'high' || value === 'low' ||
             value === 'close' || value === 'volume' || value === 'hl2' ||
-            value === 'hlc3' || value === 'ohlc4') {
+            value === 'hlc3' || value === 'ohlc4' || value === 'hlcc4') {
           return builtins[value] as Series<number>;
         }
       }

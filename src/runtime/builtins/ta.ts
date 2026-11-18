@@ -1,5 +1,6 @@
-import { Series } from '../types/series';
+﻿import { Series } from '../types/series';
 import { NA, isNa } from '../types/na';
+import { exactSum, windowSum } from './exact-sum';
 
 function pivotLevels(type: string, high: number, low: number, close: number, open: number): number[] {
   const levels = new Array<number>(11).fill(NA as unknown as number);
@@ -89,13 +90,26 @@ function rankValues(values: number[]): number[] {
 
 function calcSma(source: Series<number>, length: number): number {
   if (source.length < length) return NA as unknown as number;
-  let sum = 0;
-  for (let i = 0; i < length; i++) {
-    const v = source.get(i);
-    if (isNa(v)) return NA as unknown as number;
-    sum += v as number;
-  }
+  const sum = windowSum(source, length);
+  if (isNa(sum)) return NA as unknown as number;
   return sum / length;
+}
+
+/**
+ * Population variance the way PineScript computes it: the exact window sum of
+ * the squares over `length`, minus the squared mean.
+ */
+function calcVariance(source: Series<number>, length: number): number {
+  if (source.length < length) return NA as unknown as number;
+  const sum = windowSum(source, length);
+  if (isNa(sum)) return NA as unknown as number;
+  const squares: number[] = [];
+  for (let i = 0; i < length; i++) {
+    const value = source.get(i) as number;
+    squares.push(value * value);
+  }
+  const mean = (sum as number) / length;
+  return exactSum(squares) / length - mean * mean;
 }
 
 function calcEmaInternal(
@@ -211,10 +225,10 @@ export function createTaModule(
   // Per-run state. The compiler keys every stateful call by its source location,
   // so two ema() calls never share a slot and a scan run never inherits the
   // previous instrument's state.
-  const emaState = new Map<string, { prev: number; prevBarIndex: number; sum: number; count: number; seeded: boolean }>();
+  const emaState = new Map<string, { prev: number; prevBarIndex: number; count: number; seeded: boolean }>();
   const rsiState = new Map<string, { avgGain: number; avgLoss: number; prevVal: number; initialized: boolean; count: number }>();
-  const rmaState = new Map<string, { prev: number; prevBarIndex: number; count: number; sum: number; seeded: boolean }>();
-  const atrState = new Map<string, { prev: number; prevBarIndex: number; sum: number; count: number; seeded: boolean }>();
+  const rmaState = new Map<string, { prev: number; prevBarIndex: number; count: number; seeded: boolean }>();
+  const atrState = new Map<string, { prev: number; prevBarIndex: number; seedValues: number[]; count: number; seeded: boolean }>();
   const cumState = new Map<string, { sum: number; prevBarIndex: number }>();
   const valuewhenState = new Map<string, { values: { value: number }[] }>();
   const barsSinceState = new Map<string, { lastTrueBar: number }>();
@@ -441,7 +455,7 @@ export function createTaModule(
       let state = emaState.get(id);
 
       if (!state || state.prevBarIndex !== barIndex - 1) {
-        state = { prev: NA as unknown as number, prevBarIndex: barIndex, sum: 0, count: 0, seeded: false };
+        state = { prev: NA as unknown as number, prevBarIndex: barIndex, count: 0, seeded: false };
         emaState.set(id, state);
       }
 
@@ -459,12 +473,12 @@ export function createTaModule(
       }
 
       if (!state.seeded) {
-        state.sum += value;
         state.count += 1;
         state.prevBarIndex = barIndex;
         if (state.count < length) return NA as unknown as number;
-        const seed = state.sum / length;
-        state.prev = seed;
+        const seed = calcSma(source, length);
+        if (isNa(seed)) return NA as unknown as number;
+        state.prev = seed as number;
         state.seeded = true;
         return seed;
       }
@@ -564,15 +578,9 @@ export function createTaModule(
     ): [number, number, number] {
       const middle = calcSma(source, length);
       if (isNa(middle)) return [NA as unknown as number, NA as unknown as number, NA as unknown as number];
-
-      let variance = 0;
-      for (let i = 0; i < length; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return [NA as unknown as number, NA as unknown as number, NA as unknown as number];
-        const diff = (v as number) - (middle as number);
-        variance += diff * diff;
-      }
-      const stddev = Math.sqrt(variance / length);
+      const variance = calcVariance(source, length);
+      if (isNa(variance)) return [NA as unknown as number, NA as unknown as number, NA as unknown as number];
+      const stddev = (variance as number) > 0 ? Math.sqrt(variance as number) : 0;
       const upper = (middle as number) + mult * stddev;
       const lower = (middle as number) - mult * stddev;
       return [middle as number, upper, lower];
@@ -601,7 +609,7 @@ export function createTaModule(
       const barIndex = getCurrentBarIndex();
       let state = atrState.get(id);
       if (!state || state.prevBarIndex !== barIndex - 1) {
-        state = { prev: NA as unknown as number, prevBarIndex: barIndex, sum: 0, count: 0, seeded: false };
+        state = { prev: NA as unknown as number, prevBarIndex: barIndex, seedValues: [], count: 0, seeded: false };
         atrState.set(id, state);
       }
 
@@ -613,11 +621,11 @@ export function createTaModule(
       }
 
       if (!state.seeded) {
-        state.sum += tr;
+        state.seedValues.push(tr);
         state.count += 1;
         state.prevBarIndex = barIndex;
         if (state.count < length) return NA as unknown as number;
-        const seed = state.sum / length;
+        const seed = exactSum(state.seedValues) / length;
         state.prev = seed;
         state.seeded = true;
         return seed;
@@ -744,19 +752,20 @@ export function createTaModule(
     /** Chande Momentum Oscillator: 100 * (gains - losses) / (gains + losses). */
     cmo(source: Series<number>, length: number): number {
       if (length <= 0 || source.length < length + 1) return NA as unknown as number;
-      let gains = 0;
-      let losses = 0;
+      const gains: number[] = [];
+      const losses: number[] = [];
       for (let i = 0; i < length; i++) {
         const current = source.get(i);
         const previous = source.get(i + 1);
         if (isNa(current) || isNa(previous)) continue;
         const momentum = (current as number) - (previous as number);
-        if (momentum >= 0) gains += momentum;
-        else losses -= momentum;
+        if (momentum >= 0) gains.push(momentum);
+        else losses.push(-momentum);
       }
-      const total = gains + losses;
-      return total === 0 ? 0 : (100 * (gains - losses)) / total;
-    },
+      const gainSum = exactSum(gains);
+      const lossSum = exactSum(losses);
+      const total = gainSum + lossSum;
+      return total === 0 ? 0 : (100 * (gainSum - lossSum)) / total;    },
 
     percentileLinearInterpolation(source: Series<number>, length: number, percentage: number): number {
       const values = this.windowValues(source, length);
@@ -836,7 +845,7 @@ export function createTaModule(
     },
 
     /**
-     * ta.vwma(source, length) — the chart's volume is the weight. The legacy
+     * ta.vwma(source, length) â€” the chart's volume is the weight. The legacy
      * (source, volume, length) form stays for host callers.
      */
     vwma(source: Series<number>, lengthOrVolume: number | Series<number>, length?: number, _id?: string): number {
@@ -871,7 +880,7 @@ export function createTaModule(
       let state = rmaState.get(id);
 
       if (!state || state.prevBarIndex !== barIndex - 1) {
-        state = { prev: NA as unknown as number, prevBarIndex: barIndex, count: 0, sum: 0, seeded: false };
+        state = { prev: NA as unknown as number, prevBarIndex: barIndex, count: 0, seeded: false };
         rmaState.set(id, state);
       }
 
@@ -889,12 +898,12 @@ export function createTaModule(
       }
 
       if (!state.seeded) {
-        state.sum += value;
         state.count += 1;
         state.prevBarIndex = barIndex;
         if (state.count < length) return NA as unknown as number;
-        const seed = state.sum / length;
-        state.prev = seed;
+        const seed = calcSma(source, length);
+        if (isNa(seed)) return NA as unknown as number;
+        state.prev = seed as number;
         state.seeded = true;
         return seed;
       }
@@ -959,22 +968,9 @@ export function createTaModule(
      * Pine Script v6: ta.stdev uses population stdev (biased).
      */
     stdev(source: Series<number>, length: number, _id?: string): number {
-      if (source.length < length) return NA as unknown as number;
-
-      let sum = 0;
-      for (let i = 0; i < length; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        sum += v as number;
-      }
-      const mean = sum / length;
-
-      let sqDiffSum = 0;
-      for (let i = 0; i < length; i++) {
-        const diff = (source.get(i) as number) - mean;
-        sqDiffSum += diff * diff;
-      }
-      return Math.sqrt(sqDiffSum / length);
+      const variance = calcVariance(source, length);
+      if (isNa(variance)) return NA as unknown as number;
+      return variance > 0 ? Math.sqrt(variance as number) : 0;
     },
 
     /**
@@ -982,22 +978,7 @@ export function createTaModule(
      * Population variance over `length` bars.
      */
     variance(source: Series<number>, length: number, _id?: string): number {
-      if (source.length < length) return NA as unknown as number;
-
-      let sum = 0;
-      for (let i = 0; i < length; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        sum += v as number;
-      }
-      const mean = sum / length;
-
-      let sqDiffSum = 0;
-      for (let i = 0; i < length; i++) {
-        const diff = (source.get(i) as number) - mean;
-        sqDiffSum += diff * diff;
-      }
-      return sqDiffSum / length;
+      return calcVariance(source, length);
     },
 
     /**
@@ -1128,28 +1109,21 @@ export function createTaModule(
      */
     cci(source: Series<number>, length: number, _id?: string): number {
       if (source.length < length) return NA as unknown as number;
+      const mean = calcSma(source, length);
+      if (isNa(mean)) return NA as unknown as number;
 
-      // Calculate SMA
-      let sum = 0;
+      // Mean absolute deviation, summed exactly.
+      const deviations: number[] = [];
       for (let i = 0; i < length; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        sum += v as number;
+        deviations.push(Math.abs((source.get(i) as number) - (mean as number)));
       }
-      const mean = sum / length;
-
-      // Mean absolute deviation
-      let madSum = 0;
-      for (let i = 0; i < length; i++) {
-        madSum += Math.abs((source.get(i) as number) - mean);
-      }
-      const mad = madSum / length;
+      const mad = exactSum(deviations) / length;
 
       const current = source.get(0);
       if (isNa(current)) return NA as unknown as number;
       if (mad === 0) return 0;
 
-      return ((current as number) - mean) / (0.015 * mad);
+      return ((current as number) - (mean as number)) / (0.015 * mad);
     },
 
     /**
@@ -1355,30 +1329,24 @@ export function createTaModule(
      */
     correlation(source1: Series<number>, source2: Series<number>, length: number): number {
       if (source1.length < length || source2.length < length) return NA as unknown as number;
+      const mean1 = calcSma(source1, length);
+      const mean2 = calcSma(source2, length);
+      if (isNa(mean1) || isNa(mean2)) return NA as unknown as number;
 
-      let sum1 = 0, sum2 = 0;
+      const covariates: number[] = [];
+      const squares1: number[] = [];
+      const squares2: number[] = [];
       for (let i = 0; i < length; i++) {
-        const v1 = source1.get(i);
-        const v2 = source2.get(i);
-        if (isNa(v1) || isNa(v2)) return NA as unknown as number;
-        sum1 += v1 as number;
-        sum2 += v2 as number;
-      }
-      const mean1 = sum1 / length;
-      const mean2 = sum2 / length;
-
-      let cov = 0, var1 = 0, var2 = 0;
-      for (let i = 0; i < length; i++) {
-        const d1 = (source1.get(i) as number) - mean1;
-        const d2 = (source2.get(i) as number) - mean2;
-        cov += d1 * d2;
-        var1 += d1 * d1;
-        var2 += d2 * d2;
+        const d1 = (source1.get(i) as number) - (mean1 as number);
+        const d2 = (source2.get(i) as number) - (mean2 as number);
+        covariates.push(d1 * d2);
+        squares1.push(d1 * d1);
+        squares2.push(d2 * d2);
       }
 
-      const denom = Math.sqrt(var1 * var2);
+      const denom = Math.sqrt(exactSum(squares1) * exactSum(squares2));
       if (denom === 0) return 0;
-      return cov / denom;
+      return exactSum(covariates) / denom;
     },
 
     /**
@@ -1388,20 +1356,13 @@ export function createTaModule(
      */
     dev(source: Series<number>, length: number): number {
       if (source.length < length) return NA as unknown as number;
-
-      let sum = 0;
+      const mean = calcSma(source, length);
+      if (isNa(mean)) return NA as unknown as number;
+      const deviations: number[] = [];
       for (let i = 0; i < length; i++) {
-        const v = source.get(i);
-        if (isNa(v)) return NA as unknown as number;
-        sum += v as number;
+        deviations.push(Math.abs((source.get(i) as number) - (mean as number)));
       }
-      const mean = sum / length;
-
-      let madSum = 0;
-      for (let i = 0; i < length; i++) {
-        madSum += Math.abs((source.get(i) as number) - mean);
-      }
-      return madSum / length;
+      return exactSum(deviations) / length;
     },
 
     /**
@@ -1431,8 +1392,8 @@ export function createTaModule(
       // We need length+1 bars to compare current typical price with previous
       if (series.length < length + 1 || vol.length < length) return NA as unknown as number;
 
-      let posFlow = 0;
-      let negFlow = 0;
+      const positive: number[] = [];
+      const negative: number[] = [];
 
       for (let i = 0; i < length; i++) {
         const tp = series.get(i);
@@ -1442,15 +1403,16 @@ export function createTaModule(
 
         const rawMf = (tp as number) * (v as number);
         if ((tp as number) > (prevTp as number)) {
-          posFlow += rawMf;
+          positive.push(rawMf);
         } else if ((tp as number) < (prevTp as number)) {
-          negFlow += rawMf;
+          negative.push(rawMf);
         }
         // If equal, money flow is not counted for either side
       }
 
+      const negFlow = exactSum(negative);
       if (negFlow === 0) return 100;
-      const mfr = posFlow / negFlow;
+      const mfr = exactSum(positive) / negFlow;
       return 100 - 100 / (1 + mfr);
     },
 
@@ -1662,12 +1624,12 @@ export function createTaModule(
         const barIndex = getCurrentBarIndex();
         const rangeState = emaState.get(rangeId);
         if (!rangeState || rangeState.prevBarIndex !== barIndex - 1) {
-          emaState.set(rangeId, { prev: curr, prevBarIndex: barIndex, sum: 0, count: 0, seeded: true });
+          emaState.set(rangeId, { prev: curr, prevBarIndex: barIndex, count: 0, seeded: true });
           rangeVal = curr;
         } else {
           const k = 2 / (length + 1);
           rangeVal = curr * k + (rangeState.prev as number) * (1 - k);
-          emaState.set(rangeId, { prev: rangeVal, prevBarIndex: barIndex, sum: 0, count: 0, seeded: true });
+          emaState.set(rangeId, { prev: rangeVal, prevBarIndex: barIndex, count: 0, seeded: true });
         }
       }
       if (isNa(rangeVal)) return NA3;
@@ -1894,16 +1856,17 @@ export function createTaModule(
 
     cog(source: Series<number>, length: number): number {
       if (source.length < length) return NA as unknown as number;
-      let sum = 0;
-      let weighted = 0;
+      const values: number[] = [];
+      const weighted: number[] = [];
       for (let i = 0; i < length; i++) {
         const value = source.get(i);
         if (isNa(value)) return NA as unknown as number;
-        sum += value as number;
-        weighted += (value as number) * (i + 1);
+        values.push(value as number);
+        weighted.push((value as number) * (i + 1));
       }
+      const sum = exactSum(values);
       if (sum === 0) return NA as unknown as number;
-      return -weighted / sum;
+      return -exactSum(weighted) / sum;
     },
 
     cross(a: Series<number> | number, b: Series<number> | number): boolean {
