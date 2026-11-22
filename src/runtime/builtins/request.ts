@@ -649,7 +649,8 @@ export function createRequestModule(
       const currentTf = canonicalTimeframe(getCurrentTimeframe());
       const requested = canonicalTimeframe(timeframe || currentTf);
       const currentIndex = getCurrentBarIndex();
-      const empty = () => sources.map(() => [NA]);
+      const empty = () =>
+        sources.length === 1 ? [NA] : sources.map(() => [NA]);
       if (securityProbe?.active) return empty();
       if (sources.some((spec) => spec === null)) unsupportedSources(String(symbol ?? ''), requested);
       if (!sameSymbol(symbol, getCurrentSymbol())) {
@@ -660,9 +661,11 @@ export function createRequestModule(
       const requestedSeconds = timeframeSeconds(requested);
       if (requested === currentTf) {
         const bar = bars[currentIndex];
-        return bar
-          ? sources.map((spec) => (spec ? [specValue(spec, bar, currentIndex, bars, 'chart')] : [NA]))
-          : empty();
+        if (!bar) return empty();
+        const values = sources.map((spec) =>
+          spec ? [specValue(spec, bar, currentIndex, bars, 'chart')] : [NA],
+        );
+        return sources.length === 1 ? values[0]! : values;
       }
       if (!(requestedSeconds > 0 && requestedSeconds < currentSeconds)) {
         warn(String(symbol ?? ''), requested, false, ignoreInvalidTimeframe);
@@ -674,14 +677,15 @@ export function createRequestModule(
         warn(String(symbol ?? ''), requested, true, ignoreInvalidTimeframe);
         return empty();
       }
-      return sources.map((spec) => {
+      const values = sources.map((spec) => {
         if (!spec) return new Array<number>(slice.end - slice.start).fill(NA);
-        const values: number[] = [];
+        const seriesValues: number[] = [];
         for (let index = slice.start; index < slice.end; index++) {
-          values.push(specValue(spec, slice.series[index]!, index, slice.series, `${requested}:${String(symbol)}`));
+          seriesValues.push(specValue(spec, slice.series[index]!, index, slice.series, `${requested}:${String(symbol)}`));
         }
-        return values;
+        return seriesValues;
       });
+      return sources.length === 1 ? values[0]! : values;
     },
     security_lower_tf(
       symbol: string,

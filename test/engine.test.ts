@@ -1252,6 +1252,41 @@ plot(confirmedOpen, "Confirmed open")`,
     expect(confirmedOpen.values[0]).toBe(113);
   });
 
+  it('returns a flat lower array for a single security_lower_tf expression', () => {
+    const chartBars: PineBar[] = Array.from({ length: 4 }, (_, index) => ({
+      time: index * 15 * 60_000,
+      open: 100 + index,
+      high: 110 + index,
+      low: 90 + index,
+      close: 100 + index,
+      volume: 10,
+    }));
+    const lowerBars: PineBar[] = Array.from({ length: 60 }, (_, index) => ({
+      time: index * 60_000,
+      open: 100 + index,
+      high: 101 + index,
+      low: 99 + index,
+      close: 100 + index,
+      volume: 1,
+    }));
+    const result = runPineScript({
+      source: `//@version=6
+indicator("LTF single")
+lows = request.security_lower_tf(syminfo.tickerid, "1", close)
+plot(array.size(lows), "Count")
+plot(array.get(lows, 0), "First")`,
+      bars: chartBars,
+      lowerBars: { 'BINANCE:BTCUSDT.P@1': lowerBars },
+      timeframe: '15',
+      symbol: 'BINANCE:BTCUSDT.P',
+    });
+    expect(result.ok).toBe(true);
+    const count = result.plots.find((plot) => plot.title === 'Count')!;
+    expect(count.values[0]).toBe(15);
+    const first = result.plots.find((plot) => plot.title === 'First')!;
+    expect(first.values[0]).toBe(100);
+  });
+
   it('evaluates ta.atr inside a lower-timeframe security tuple', () => {
     const chartBars: PineBar[] = Array.from({ length: 4 }, (_, index) => ({
       time: index * 15 * 60_000,
