@@ -2,19 +2,10 @@
 // All timestamps are in milliseconds (Unix epoch).
 
 import { NA } from '../types/na';
+import { fixedOffsetMinutes, parseTimestampString } from '../../timestamp';
 
 // Internal alias so it doesn't conflict with the `NA` symbol type
 const NA_SYMBOL = NA;
-
-/** Minutes east of UTC for "GMT-5", "UTC+0", "UTC0"; null for IANA names. */
-function fixedOffsetMinutes(tz: string): number | null {
-  const match = /^(?:GMT|UTC)([+-]?)(\d{1,2})(?::?(\d{2}))?$/i.exec(tz.trim());
-  if (!match) return null;
-  const sign = match[1] === '-' ? -1 : 1;
-  const hours = Number(match[2]);
-  const minutes = Number(match[3] ?? 0);
-  return sign * (hours * 60 + minutes);
-}
 
 /**
  * Extract date/time parts from a timestamp, optionally in a specific timezone.
@@ -164,20 +155,24 @@ export function createTimeFunctions(getCurrentTime: () => number) {
     },
 
     /**
-     * Build a UTC timestamp (milliseconds) from date/time components.
+     * Build a timestamp (milliseconds) from components, or parse a Pine date
+     * string (`timestamp("01 Jan 2020 00:00 +0000")`) with an optional zone.
      *
      * Pine Script months are 1-based (January = 1), so we subtract 1 for the
      * JS Date.UTC constructor which expects 0-based months.
      */
     timestamp(
-      year: number,
-      month: number,
-      day: number,
+      year: number | string,
+      month?: number | string,
+      day: number = 1,
       hour: number = 0,
       minute: number = 0,
       second: number = 0
     ): number {
-      return Date.UTC(year, month - 1, day, hour, minute, second);
+      if (typeof year === 'string') {
+        return parseTimestampString(year, typeof month === 'string' ? month : undefined);
+      }
+      return Date.UTC(year, Number(month ?? 1) - 1, day, hour, minute, second);
     },
 
     /**

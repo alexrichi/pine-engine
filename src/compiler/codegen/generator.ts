@@ -1,5 +1,6 @@
 import { DiagnosticReporter } from '../diagnostics/diagnostic';
 import { ScriptMetadata, InputDef, PlotDef } from '../index';
+import { parseTimestampString } from '../../timestamp';
 import { FunctionMapper, COLOR_CONSTANTS } from './function-mapper';
 import {
   Program, Statement, Expression,
@@ -38,6 +39,9 @@ const JS_RESERVED = new Set([
 function safeIdent(name: string): string {
   return JS_RESERVED.has(name) ? `__pine_${name}` : name;
 }
+
+/** Pine types where `x[n]` is element access instead of bar history. */
+const COLLECTION_TYPES = new Set(['array', 'matrix', 'map']);
 
 // Pine keeps functions in a namespace separate from variables, so a local
 // `var rbf = rbf(...)` must not shadow the function `rbf`. Generated user
@@ -514,6 +518,29 @@ private fnParams = new Set<string>();
             namespace === 'currency' || namespace === 'order' || namespace === 'alert' ||
             namespace === 'font' || namespace === 'dayofweek') {
           return member.property;
+        }
+      }
+    }
+    if (expr.kind === 'CallExpression') {
+      const call = expr as CallExpression;
+      // `input.time(timestamp("01 Jan 2020 00:00 +0000"))` carries its default as
+      // a constant call; evaluate it here so the input keeps the date, not 0.
+      if (this.calleeToString(call.callee) === 'timestamp') {
+        const args = call.args.map((arg) => this.getLiteralValue(arg.value));
+        if (args.some((value) => value === undefined)) return undefined;
+        const [first, second, third, fourth, fifth, sixth] = args;
+        if (typeof first === 'string') {
+          return parseTimestampString(first, typeof second === 'string' ? second : undefined);
+        }
+        if (typeof first === 'number' && typeof second === 'number' && typeof third === 'number') {
+          return Date.UTC(
+            first,
+            second - 1,
+            third,
+            typeof fourth === 'number' ? fourth : 0,
+            typeof fifth === 'number' ? fifth : 0,
+            typeof sixth === 'number' ? sixth : 0
+          );
         }
       }
     }
@@ -2691,14 +2718,41 @@ private fnParams = new Set<string>();
         return this.mapper.mapSeriesGet(name, idxStr);
       }
       // User variable history: myVar[1] → __rt.userSeriesGet("myVar", 1)
-      if (this.historyVars.has(name)) {
+      if (this.historyVars.has(name) && !this.isCollectionExpr(objExpr)) {
         return `__rt.userSeriesGet(${this.userSeriesKey(name)}, ${idxStr})`;
       }
     }
 
-    // Member expression series: e.g. custom series
     const objStr = this.genExpr(objExpr);
-    return `${objStr}[${idxStr}]`;
+    // Pine `[]` is element access on a collection and bar history on a series.
+    if (this.isCollectionExpr(objExpr)) return `${objStr}[${idxStr}]`;
+    return `__rt.exprSeriesGet(${objStr}, ${idxStr}, ${this.callSiteId()})`;
+  }
+
+  /** True when `[]` on this expression reads an element, not a past bar. */
+  private isCollectionExpr(expr: Expression): boolean {
+    let node: Expression = expr;
+    while (node.kind === 'GroupExpression') node = (node as GroupExpression).expression;
+    if (node.kind === 'IdentifierExpression') return this.isCollectionIdentifier(node);
+    if (node.kind === 'CallExpression') {
+      const call = node as CallExpression;
+      const inferred = this.inferTypeFromCall(this.calleeToString(call.callee));
+      if (inferred) return COLLECTION_TYPES.has(inferred);
+      // `myMatrix.row(0)[1]` and similar namespace methods.
+      return call.callee.kind === 'MemberExpression'
+        ? this.isCollectionIdentifier((call.callee as MemberExpression).object)
+        : false;
+    }
+    if (node.kind === 'MemberExpression') {
+      return this.isCollectionIdentifier((node as MemberExpression).object);
+    }
+    return false;
+  }
+
+  private isCollectionIdentifier(expr: Expression): boolean {
+    if (expr.kind !== 'IdentifierExpression') return false;
+    const type = this.varTypes.get((expr as IdentifierExpression).name);
+    return type !== undefined && COLLECTION_TYPES.has(type);
   }
 
   private genArrayLiteral(expr: ArrayLiteralExpression): string {

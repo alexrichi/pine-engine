@@ -76,6 +76,15 @@ export interface RuntimeContext {
     fg_color: string;
     border_color: string;
     text_color: string;
+    /** Only time-based candles are executable here; every other style is false. */
+    is_standard: boolean;
+    is_heikinashi: boolean;
+    is_renko: boolean;
+    is_kagi: boolean;
+    is_linebreak: boolean;
+    is_pnf: boolean;
+    is_range: boolean;
+    is_columns: boolean;
     /** Epoch ms of the left/right visible bar; na when the host has no viewport. */
     left_visible_bar_time: number;
     right_visible_bar_time: number;
@@ -107,7 +116,14 @@ export interface RuntimeContext {
   dayofmonth(ts?: number, tz?: string): number;
   month(ts?: number, tz?: string): number;
   year(ts?: number, tz?: string): number;
-  timestamp(year: number, month: number, day: number, hour?: number, minute?: number, second?: number): number;
+  timestamp(
+    year: number | string,
+    month?: number | string,
+    day?: number,
+    hour?: number,
+    minute?: number,
+    second?: number
+  ): number;
   weekofyear(ts?: number, tz?: string): number;
   timeInSession(timeframe?: string, session?: string, timezone?: string): number | symbol;
 
@@ -199,6 +215,11 @@ export interface RuntimeContext {
   // User variable series history
   userSeriesSet(name: string, value: unknown): void;
   userSeriesGet(name: string, offset: number): unknown;
+  /**
+   * Bar history for `[n]` on an expression (`ta.ema(close, 9)[1]`), keyed by
+   * the call site so each expression keeps its own series.
+   */
+  exprSeriesGet(value: unknown, offset: number, site: string): unknown;
   /** Record a top-level variable for the requested debug-bar snapshot. */
   debugVar(name: string, value: unknown): void;
 
@@ -505,6 +526,14 @@ export function createContext(
       fg_color: '#d1d4dc',
       border_color: '#2a2e39',
       text_color: '#d1d4dc',
+      is_standard: true,
+      is_heikinashi: false,
+      is_renko: false,
+      is_kagi: false,
+      is_linebreak: false,
+      is_pnf: false,
+      is_range: false,
+      is_columns: false,
       left_visible_bar_time: options.visibleRange?.left ?? Number.NaN,
       right_visible_bar_time: options.visibleRange?.right ?? Number.NaN,
       point: {
@@ -820,6 +849,11 @@ export function createContext(
       const s = userSeries.get(name);
       if (!s) return NA;
       const val = s.get(offset);
+      return val === undefined ? NA : val;
+    },
+
+    exprSeriesGet(value: unknown, offset: number, site: string): unknown {
+      const val = rollingSource(value, site).get(offset);
       return val === undefined ? NA : val;
     },
 
